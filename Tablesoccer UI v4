@@ -557,7 +557,7 @@ class RumbleVerseUI:
             GameModeCard(start_x, card_y, card_width, card_height, "Ranked", "Clash Royale", 
                         PURPLE_MID, ORANGE, True),
             GameModeCard(start_x + spacing, card_y, card_width, card_height, "Duo", "Battle Royale"),
-            GameModeCard(start_x + spacing * 2, card_y, card_width, card_height, "Trio", "Battle Royale"),
+            GameModeCard(start_x + spacing * 2, card_y, card_width, card_height, "Clash", "Office Clash"),
             GameModeCard(start_x + spacing * 3, card_y, card_width, card_height, "Quad", "Battle Royale"),
             GameModeCard(start_x + spacing * 4, card_y, card_width, card_height, "PaytoPlay", 
                         "Scan QR to Pay", PURPLE_LIGHT, CYAN)
