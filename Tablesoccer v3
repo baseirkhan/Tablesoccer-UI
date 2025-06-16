@@ -1,0 +1,1235 @@
+import pygame
+import tkinter as tk
+from tkinter import ttk
+import threading
+import time
+import sys
+import random
+from typing import List, Tuple
+from PIL import Image, ImageDraw  # For creating QR code image
+
+# Initialize pygame and get screen info for scaling
+pygame.init()
+info = pygame.display.Info()
+SCREEN_WIDTH = info.current_w
+SCREEN_HEIGHT = info.current_h
+
+BASE_WIDTH = 1400  # original base design
+BASE_HEIGHT = 800
+
+scale_x = SCREEN_WIDTH / BASE_WIDTH
+scale_y = SCREEN_HEIGHT / BASE_HEIGHT
+scale = min(scale_x, scale_y)
+
+def S(x):
+    """Helper function to scale sizes based on screen resolution"""
+    return int(x * scale)
+
+# Debug print to confirm screen scaling values
+print(f"Detected resolution: {SCREEN_WIDTH}x{SCREEN_HEIGHT}, scale factor: {scale:.2f}")
+
+class GameApplication:
+    def __init__(self):
+        self.current_screen = "rumbleverse"  # "rumbleverse", "tablesoccer", or "qrcode"
+        self.rumbleverse_app = None
+        self.tablesoccer_app = None
+        self.qrcode_window = None
+        self.running = True
+        
+    def start_rumbleverse(self):
+        self.current_screen = "rumbleverse"
+        # Initialize pygame if not already initialized
+        if not pygame.get_init():
+            pygame.init()
+        self.rumbleverse_app = RumbleVerseUI(self)
+        self.rumbleverse_app.run()
+        
+    def start_tablesoccer(self):
+        self.current_screen = "tablesoccer"
+        # Properly quit pygame before starting tkinter
+        if pygame.get_init():
+            pygame.quit()
+        self.tablesoccer_app = TableSoccerScoreboard(self)
+        self.tablesoccer_app.run()
+        
+    def show_qr_code(self):
+        self.current_screen = "qrcode"
+        # Properly quit pygame before starting tkinter
+        if pygame.get_init():
+            pygame.quit()
+        self.qrcode_window = QRCodeWindow(self)
+        self.qrcode_window.run()
+        
+    def back_to_rumbleverse(self):
+        print("Returning to Game Mode Selection...")
+        if self.tablesoccer_app and hasattr(self.tablesoccer_app, 'root') and self.tablesoccer_app.root.winfo_exists():
+            self.tablesoccer_app.stop_timer()
+            self.tablesoccer_app.root.quit()  # Use quit() instead of destroy()
+            self.tablesoccer_app.root.destroy()
+        
+        if self.qrcode_window and hasattr(self.qrcode_window, 'root') and self.qrcode_window.root.winfo_exists():
+            self.qrcode_window.root.quit()
+            self.qrcode_window.root.destroy()
+        
+        # Small delay to ensure clean transition
+        time.sleep(0.1)
+        
+        # Restart pygame and rumbleverse
+        try:
+            self.start_rumbleverse()
+        except Exception as e:
+            print(f"Error returning to game modes: {e}")
+            # Fallback: restart the entire application
+            self.restart_application()
+    
+    def restart_application(self):
+        """Fallback method to restart the entire application"""
+        print("Restarting application...")
+        if self.tablesoccer_app:
+            try:
+                self.tablesoccer_app.root.destroy()
+            except:
+                pass
+        if self.qrcode_window:
+            try:
+                self.qrcode_window.root.destroy()
+            except:
+                pass
+        if pygame.get_init():
+            pygame.quit()
+        
+        # Create new application instance
+        new_app = GameApplication()
+        new_app.start_rumbleverse()
+
+# QR Code Window with comprehensive scaling
+class QRCodeWindow:
+    def __init__(self, main_app):
+        self.main_app = main_app
+        self.root = tk.Tk()
+        self.root.title("PaytoPlay - QR Code")
+        # Scale the window size based on screen resolution
+        window_width = S(600)
+        window_height = S(700)
+        self.root.geometry(f"{window_width}x{window_height}")
+        self.root.configure(bg='#1e3a5f')
+        
+        # Center the window on screen
+        x = (SCREEN_WIDTH - window_width) // 2
+        y = (SCREEN_HEIGHT - window_height) // 2
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        # Create main container with scaled padding
+        main_frame = tk.Frame(self.root, bg='#1e3a5f')
+        main_frame.pack(fill='both', expand=True, padx=S(20), pady=S(20))
+        
+        # Header section with scaled elements
+        header_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        header_frame.pack(fill='x', pady=(0, S(20)))
+        
+        # Back to RumbleVerse button with scaled font and padding
+        back_btn = tk.Button(header_frame, text="← Back to Game Modes", 
+                           font=('Arial', S(12), 'bold'), 
+                           bg='#4a6fa5', fg='white', bd=0, 
+                           padx=S(15), pady=S(8),
+                           command=self.back_to_rumbleverse)
+        back_btn.pack(side='left')
+        
+        # Title with scaled font
+        tk.Label(main_frame, text="SCAN TO PAY", 
+                font=('Arial', S(28), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(pady=(0, S(25)))
+        
+        # QR Code frame with scaled border
+        qr_frame = tk.Frame(main_frame, bg='white', bd=S(12), relief='raised')
+        qr_frame.pack(pady=S(25))
+        
+        # Create QR code image (scaled based on screen size)
+        qr_size = S(350)
+        qr_image = self.create_qr_code(qr_size)
+        
+        # Display QR code with scaled canvas
+        self.qr_canvas = tk.Canvas(qr_frame, width=qr_size, height=qr_size, 
+                                 bg='white', highlightthickness=0)
+        self.qr_canvas.pack(padx=S(10), pady=S(10))
+        
+        # Draw QR code on canvas
+        for y in range(qr_size):
+            for x in range(qr_size):
+                if qr_image.getpixel((x, y)) == 0:  # Black pixel
+                    self.qr_canvas.create_rectangle(x, y, x+1, y+1, fill='black', outline='black')
+        
+        # Instructions with scaled fonts and padding
+        instructions_frame = tk.Frame(main_frame, bg='#4a6fa5', bd=S(3), relief='raised')
+        instructions_frame.pack(fill='x', pady=S(25), padx=S(40))
+        
+        instruction_texts = [
+            "1. Scan the QR code with your payment app",
+            "2. Complete the payment process", 
+            "3. Wait for confirmation to access premium content"
+        ]
+        
+        for i, text in enumerate(instruction_texts):
+            pady_top = S(20) if i == 0 else S(10)
+            pady_bottom = S(20) if i == len(instruction_texts) - 1 else S(10)
+            
+            tk.Label(instructions_frame, text=text, 
+                    font=('Arial', S(12)), fg='white', bg='#4a6fa5', 
+                    anchor='w').pack(fill='x', padx=S(25), pady=(pady_top, pady_bottom))
+        
+        # Payment amount display (new feature)
+        amount_frame = tk.Frame(main_frame, bg='#4a6fa5', bd=S(2), relief='raised')
+        amount_frame.pack(fill='x', pady=(S(15), S(25)), padx=S(60))
+        
+        tk.Label(amount_frame, text="PAYMENT AMOUNT", 
+                font=('Arial', S(10), 'bold'), 
+                fg='#cccccc', bg='#4a6fa5').pack(pady=(S(10), S(5)))
+        
+        tk.Label(amount_frame, text="$9.99", 
+                font=('Arial', S(24), 'bold'), 
+                fg='white', bg='#4a6fa5').pack(pady=(0, S(10)))
+        
+        # Button frame for multiple actions
+        button_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        button_frame.pack(pady=S(20))
+        
+        # Replace QR code button with scaled font and padding
+        replace_btn = tk.Button(button_frame, text="Replace with Your QR Code", 
+                              font=('Arial', S(11)), 
+                              bg='#4a6fa5', fg='white', bd=0, 
+                              padx=S(20), pady=S(10),
+                              command=self.show_replace_instructions)
+        replace_btn.pack(side='left', padx=(0, S(10)))
+        
+        # Test payment button (demonstration)
+        test_btn = tk.Button(button_frame, text="Test Payment", 
+                           font=('Arial', S(11)), 
+                           bg='#8b4a6b', fg='white', bd=0, 
+                           padx=S(20), pady=S(10),
+                           command=self.test_payment)
+        test_btn.pack(side='left')
+    
+    def create_qr_code(self, size):
+        """Create a QR code image with finder patterns and random data"""
+        # Create a blank image
+        image = Image.new('1', (size, size), 1)  # '1' mode is 1-bit pixels, black and white
+        draw = ImageDraw.Draw(image)
+        
+        # Calculate module size (we'll use a 29x29 QR code pattern)
+        module_size = size // 29
+        
+        # Generate QR code pattern
+        pattern = []
+        random.seed(42)  # Fixed seed for consistent pattern
+        for i in range(29):
+            row = []
+            for j in range(29):
+                # Create finder patterns (the three large squares in corners)
+                if (i < 7 and j < 7) or (i < 7 and j > 21) or (i > 21 and j < 7):
+                    # Outer border of finder pattern
+                    if i == 0 or i == 6 or j == 0 or j == 6 or i == 22 or i == 28 or j == 22 or j == 28:
+                        row.append(0)  # Black
+                    # Inner square of finder pattern
+                    elif i >= 2 and i <= 4 and j >= 2 and j <= 4:
+                        row.append(0)  # Black
+                    elif i >= 2 and i <= 4 and j >= 24 and j <= 26:
+                        row.append(0)  # Black
+                    elif i >= 24 and i <= 26 and j >= 2 and j <= 4:
+                        row.append(0)  # Black
+                    else:
+                        row.append(1)  # White
+                # Timing patterns (the lines connecting finder patterns)
+                elif i == 6 and j % 2 == 0:
+                    row.append(0)  # Black
+                elif j == 6 and i % 2 == 0:
+                    row.append(0)  # Black
+                # Alignment pattern (the smaller square not in a corner)
+                elif 22 <= i <= 26 and 22 <= j <= 26:
+                    if i == 22 or i == 26 or j == 22 or j == 26 or (i == 24 and j == 24):
+                        row.append(0)  # Black
+                    else:
+                        row.append(1)  # White
+                # Format information
+                elif (i < 9 and j == 8) or (i == 8 and j < 9):
+                    row.append(random.choice([0, 1]))
+                # Random data for the rest
+                else:
+                    row.append(random.choice([0, 1]))
+            pattern.append(row)
+        
+        # Draw the QR code pattern
+        for i in range(29):
+            for j in range(29):
+                if pattern[i][j] == 0:  # Black module
+                    draw.rectangle(
+                        [j * module_size, i * module_size, 
+                         (j + 1) * module_size - 1, (i + 1) * module_size - 1], 
+                        fill=0
+                    )
+        
+        return image
+    
+    def show_replace_instructions(self):
+        """Show instructions for replacing the QR code with scaled window"""
+        instruction_window = tk.Toplevel(self.root)
+        instruction_window.title("Replace QR Code Instructions")
+        
+        # Scale the instruction window
+        inst_width = S(500)
+        inst_height = S(350)
+        instruction_window.geometry(f"{inst_width}x{inst_height}")
+        instruction_window.configure(bg='#1e3a5f')
+        
+        # Center the instruction window
+        x = (SCREEN_WIDTH - inst_width) // 2
+        y = (SCREEN_HEIGHT - inst_height) // 2
+        instruction_window.geometry(f"{inst_width}x{inst_height}+{x}+{y}")
+        
+        frame = tk.Frame(instruction_window, bg='#1e3a5f', padx=S(25), pady=S(25))
+        frame.pack(fill='both', expand=True)
+        
+        tk.Label(frame, text="How to Replace the QR Code", 
+                font=('Arial', S(16), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(pady=(0, S(20)))
+        
+        instructions = [
+            "1. Create your own QR code image file",
+            "2. Save it as 'custom_qr.png' in the same folder as this script",
+            "3. Modify the create_qr_code method to load your image:",
+            "   - Replace the current code with:",
+            "   - try:",
+            "       return Image.open('custom_qr.png').convert('1')",
+            "     except:",
+            "       # Fallback to generated QR code"
+        ]
+        
+        for line in instructions:
+            tk.Label(frame, text=line, font=('Arial', S(10)), 
+                    fg='white', bg='#1e3a5f', anchor='w').pack(fill='x', pady=S(2))
+        
+        tk.Button(frame, text="Close", font=('Arial', S(12)), 
+                bg='#4a6fa5', fg='white', bd=0, padx=S(20), pady=S(8),
+                command=instruction_window.destroy).pack(pady=S(20))
+    
+    def test_payment(self):
+        """Simulate a test payment process"""
+        test_window = tk.Toplevel(self.root)
+        test_window.title("Payment Processing")
+        
+        # Scale the test window
+        test_width = S(400)
+        test_height = S(200)
+        test_window.geometry(f"{test_width}x{test_height}")
+        test_window.configure(bg='#1e3a5f')
+        
+        # Center the test window
+        x = (SCREEN_WIDTH - test_width) // 2
+        y = (SCREEN_HEIGHT - test_height) // 2
+        test_window.geometry(f"{test_width}x{test_height}+{x}+{y}")
+        
+        frame = tk.Frame(test_window, bg='#1e3a5f', padx=S(20), pady=S(20))
+        frame.pack(fill='both', expand=True)
+        
+        tk.Label(frame, text="Payment Simulation", 
+                font=('Arial', S(16), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(pady=(0, S(15)))
+        
+        tk.Label(frame, text="✓ Payment of $9.99 processed successfully!", 
+                font=('Arial', S(12)), 
+                fg='#90EE90', bg='#1e3a5f').pack(pady=S(10))
+        
+        tk.Label(frame, text="Premium content unlocked!", 
+                font=('Arial', S(11)), 
+                fg='white', bg='#1e3a5f').pack(pady=S(5))
+        
+        tk.Button(frame, text="Continue", font=('Arial', S(12)), 
+                bg='#4a6fa5', fg='white', bd=0, padx=S(20), pady=S(8),
+                command=test_window.destroy).pack(pady=S(15))
+    
+    def back_to_rumbleverse(self):
+        print("Back button clicked - returning to game modes...")
+        self.main_app.back_to_rumbleverse()
+        
+    def run(self):
+        # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.mainloop()
+        
+    def on_closing(self):
+        self.root.destroy()
+        sys.exit()
+
+# RumbleVerse Game Mode Selection (Modified with scaling)
+# Constants for RumbleVerse (now using dynamic screen size)
+FPS = 60
+
+# Colors
+PURPLE_DARK = (45, 25, 85)
+PURPLE_MID = (85, 45, 125)
+PURPLE_LIGHT = (125, 85, 165)
+CYAN = (64, 224, 255)
+ORANGE = (255, 165, 0)
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (128, 128, 128)
+
+class GameModeCard:
+    def __init__(self, x: int, y: int, width: int, height: int, title: str, subtitle: str, 
+                 color: Tuple[int, int, int] = PURPLE_MID, border_color: Tuple[int, int, int] = WHITE,
+                 is_selected: bool = False):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.title = title
+        self.subtitle = subtitle
+        self.color = color
+        self.border_color = border_color if not is_selected else ORANGE
+        self.is_selected = is_selected
+        self.border_width = S(4 if is_selected else 2)
+        # Generate QR code pattern for PaytoPlay card
+        if title == "PaytoPlay":
+            self.qr_pattern = self.generate_qr_pattern()
+        
+    def generate_qr_pattern(self):
+        """Generate a random QR code-like pattern"""
+        # Create a 15x15 grid for QR code pattern
+        pattern = []
+        random.seed(42)  # Fixed seed for consistent pattern
+        for i in range(15):
+            row = []
+            for j in range(15):
+                # Create QR code-like pattern with finder patterns in corners
+                if (i < 3 and j < 3) or (i < 3 and j > 11) or (i > 11 and j < 3):
+                    # Finder patterns (corner squares)
+                    if (i == 0 or i == 2 or j == 0 or j == 2):
+                        row.append(1)
+                    else:
+                        row.append(0)
+                elif i == 1 and j == 1:
+                    row.append(1)
+                elif i == 1 and j == 13:
+                    row.append(1)
+                elif i == 13 and j == 1:
+                    row.append(1)
+                else:
+                    # Random pattern for data area
+                    row.append(random.choice([0, 1]))
+            pattern.append(row)
+        return pattern
+        
+    def draw_qr_code(self, screen, char_rect):
+        """Draw QR code pattern"""
+        if not hasattr(self, 'qr_pattern'):
+            return
+            
+        # Calculate cell size
+        qr_size = min(char_rect.width - S(40), char_rect.height - S(40))
+        cell_size = qr_size // 15
+        start_x = char_rect.centerx - (15 * cell_size) // 2
+        start_y = char_rect.centery - (15 * cell_size) // 2
+        
+        # Draw white background
+        qr_bg_rect = pygame.Rect(start_x - S(5), start_y - S(5), 15 * cell_size + S(10), 15 * cell_size + S(10))
+        pygame.draw.rect(screen, WHITE, qr_bg_rect)
+        
+        # Draw QR pattern
+        for i, row in enumerate(self.qr_pattern):
+            for j, cell in enumerate(row):
+                if cell == 1:
+                    cell_rect = pygame.Rect(
+                        start_x + j * cell_size,
+                        start_y + i * cell_size,
+                        cell_size,
+                        cell_size
+                    )
+                    pygame.draw.rect(screen, BLACK, cell_rect)
+        
+    def draw(self, screen: pygame.Surface, font_large: pygame.font.Font, font_small: pygame.font.Font):
+        # Draw card background
+        pygame.draw.rect(screen, self.color, self.rect)
+        pygame.draw.rect(screen, self.border_color, self.rect, self.border_width)
+        
+        # Draw title
+        title_surface = font_large.render(self.title, True, WHITE)
+        title_rect = title_surface.get_rect(center=(self.rect.centerx, self.rect.bottom - S(80)))
+        screen.blit(title_surface, title_rect)
+        
+        # Draw subtitle
+        subtitle_surface = font_small.render(self.subtitle, True, GRAY)
+        subtitle_rect = subtitle_surface.get_rect(center=(self.rect.centerx, self.rect.bottom - S(50)))
+        screen.blit(subtitle_surface, subtitle_rect)
+        
+        # Draw character placeholder (simplified representation)
+        char_rect = pygame.Rect(self.rect.x + S(20), self.rect.y + S(20), self.rect.width - S(40), self.rect.height - S(120))
+        pygame.draw.rect(screen, PURPLE_DARK, char_rect)
+        
+        # Add some visual elements to represent characters (all scaled)
+        if self.title == "Ranked":
+            pygame.draw.circle(screen, WHITE, (char_rect.centerx, char_rect.centery - S(20)), S(30))
+            pygame.draw.circle(screen, BLACK, (char_rect.centerx - S(10), char_rect.centery - S(30)), S(5))
+            pygame.draw.circle(screen, BLACK, (char_rect.centerx + S(10), char_rect.centery - S(30)), S(5))
+            # Add table soccer indicator for Ranked mode
+            pygame.draw.rect(screen, (34, 139, 34), (char_rect.centerx - S(25), char_rect.centery + S(10), S(50), S(20)))
+            pygame.draw.circle(screen, WHITE, (char_rect.centerx, char_rect.centery + S(20)), S(8))
+        elif self.title == "Duo":
+            pygame.draw.circle(screen, WHITE, (char_rect.centerx - S(25), char_rect.centery), S(25))
+            pygame.draw.circle(screen, CYAN, (char_rect.centerx + S(25), char_rect.centery), S(25))
+        elif self.title == "Trio":
+            pygame.draw.circle(screen, WHITE, (char_rect.centerx - S(30), char_rect.centery - S(10)), S(20))
+            pygame.draw.circle(screen, CYAN, (char_rect.centerx, char_rect.centery + S(10)), S(20))
+            pygame.draw.circle(screen, ORANGE, (char_rect.centerx + S(30), char_rect.centery - S(10)), S(20))
+        elif self.title == "Quad":
+            pygame.draw.circle(screen, WHITE, (char_rect.centerx - S(25), char_rect.centery - S(15)), S(18))
+            pygame.draw.circle(screen, CYAN, (char_rect.centerx + S(25), char_rect.centery - S(15)), S(18))
+            pygame.draw.circle(screen, ORANGE, (char_rect.centerx - S(25), char_rect.centery + S(15)), S(18))
+            pygame.draw.circle(screen, (255, 100, 255), (char_rect.centerx + S(25), char_rect.centery + S(15)), S(18))
+        elif self.title == "PaytoPlay":
+            # Draw QR code
+            self.draw_qr_code(screen, char_rect)
+
+class RumbleVerseUI:
+    def __init__(self, main_app):
+        self.main_app = main_app
+        # Create new display surface with dynamic screen size
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("RumbleVerse - Game Mode Selection")
+        self.clock = pygame.time.Clock()
+        
+        # Fonts (all scaled)
+        self.font_title = pygame.font.Font(None, S(72))
+        self.font_large = pygame.font.Font(None, S(48))
+        self.font_medium = pygame.font.Font(None, S(36))
+        self.font_small = pygame.font.Font(None, S(24))
+        
+        # Game mode cards (all scaled)
+        card_width = S(220)
+        card_height = S(400)
+        start_x = S(100)
+        spacing = S(240)
+        card_y = S(180)
+        
+        self.game_modes = [
+            GameModeCard(start_x, card_y, card_width, card_height, "Ranked", "Tablesoccer Scoreboard", 
+                        PURPLE_MID, ORANGE, True),
+            GameModeCard(start_x + spacing, card_y, card_width, card_height, "Duo", "Battle Royale"),
+            GameModeCard(start_x + spacing * 2, card_y, card_width, card_height, "Trio", "Battle Royale"),
+            GameModeCard(start_x + spacing * 3, card_y, card_width, card_height, "Quad", "Battle Royale"),
+            GameModeCard(start_x + spacing * 4, card_y, card_width, card_height, "PaytoPlay", 
+                        "Scan QR to Pay", PURPLE_LIGHT, CYAN)
+        ]
+        
+        self.selected_mode = 0
+        
+    def draw_background(self):
+        # Create gradient background
+        for y in range(SCREEN_HEIGHT):
+            color_ratio = y / SCREEN_HEIGHT
+            r = int(PURPLE_DARK[0] + (PURPLE_LIGHT[0] - PURPLE_DARK[0]) * color_ratio)
+            g = int(PURPLE_DARK[1] + (PURPLE_LIGHT[1] - PURPLE_DARK[1]) * color_ratio)
+            b = int(PURPLE_DARK[2] + (PURPLE_LIGHT[2] - PURPLE_DARK[2]) * color_ratio)
+            pygame.draw.line(self.screen, (r, g, b), (0, y), (SCREEN_WIDTH, y))
+        
+        # Draw some background elements (simplified city silhouette) - scaled
+        for i in range(20):
+            building_x = i * S(70)
+            building_height = S(100) + (i * S(23)) % S(200)
+            building_width = S(50) + (i * S(17)) % S(30)
+            color_variation = 20 + (i * 13) % 40
+            building_color = (PURPLE_DARK[0] + color_variation, 
+                            PURPLE_DARK[1] + color_variation, 
+                            PURPLE_DARK[2] + color_variation)
+            pygame.draw.rect(self.screen, building_color, 
+                           (building_x, SCREEN_HEIGHT - building_height, building_width, building_height))
+    
+    def draw_title(self):
+        title_surface = self.font_title.render("Game Modes", True, CYAN)
+        title_rect = title_surface.get_rect(center=(SCREEN_WIDTH // 2, S(80)))
+        self.screen.blit(title_surface, title_rect)
+        
+        # Draw decorative lines
+        line_y = S(120)
+        pygame.draw.line(self.screen, CYAN, (S(50), line_y), (SCREEN_WIDTH - S(50), line_y), S(2))
+        
+        # Add instruction text
+        instruction_surface = self.font_small.render("Click RANKED for Tablesoccer | Click PAYTOPAY to see QR Code", True, WHITE)
+        instruction_rect = instruction_surface.get_rect(center=(SCREEN_WIDTH // 2, S(140)))
+        self.screen.blit(instruction_surface, instruction_rect)
+    
+    def draw_bottom_ui(self):
+        # Bottom control hints (all scaled)
+        controls = [
+            ("Esc", "Back"),
+            ("Enter", "Select Mode"),
+            ("Click", "Select Game Mode")
+        ]
+        
+        x_pos = S(50)
+        for key, action in controls:
+            # Draw key background
+            key_rect = pygame.Rect(x_pos, SCREEN_HEIGHT - S(60), S(60), S(30))
+            pygame.draw.rect(self.screen, GRAY, key_rect)
+            pygame.draw.rect(self.screen, WHITE, key_rect, S(2))
+            
+            # Draw key text
+            key_surface = self.font_small.render(key, True, BLACK)
+            key_text_rect = key_surface.get_rect(center=key_rect.center)
+            self.screen.blit(key_surface, key_text_rect)
+            
+            # Draw action text
+            action_surface = self.font_small.render(action, True, WHITE)
+            self.screen.blit(action_surface, (x_pos + S(70), SCREEN_HEIGHT - S(55)))
+            
+            x_pos += S(250)
+    
+    def handle_input(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_LEFT and self.selected_mode > 0:
+                self.game_modes[self.selected_mode].is_selected = False
+                self.game_modes[self.selected_mode].border_color = WHITE
+                self.game_modes[self.selected_mode].border_width = S(2)
+                self.selected_mode -= 1
+                self.game_modes[self.selected_mode].is_selected = True
+                self.game_modes[self.selected_mode].border_color = ORANGE
+                self.game_modes[self.selected_mode].border_width = S(4)
+                
+            elif event.key == pygame.K_RIGHT and self.selected_mode < len(self.game_modes) - 1:
+                self.game_modes[self.selected_mode].is_selected = False
+                self.game_modes[self.selected_mode].border_color = WHITE
+                self.game_modes[self.selected_mode].border_width = S(2)
+                self.selected_mode += 1
+                self.game_modes[self.selected_mode].is_selected = True
+                self.game_modes[self.selected_mode].border_color = ORANGE
+                self.game_modes[self.selected_mode].border_width = S(4)
+                
+            elif event.key == pygame.K_RETURN:
+                selected_mode = self.game_modes[self.selected_mode].title
+                print(f"Selected: {selected_mode}")
+                if selected_mode == "Ranked":
+                    self.main_app.start_tablesoccer()
+                    return False  # Exit pygame loop
+                elif selected_mode == "PaytoPlay":
+                    print("PaytoPlay selected - Opening QR Code window")
+                    self.main_app.show_qr_code()
+                    return False  # Exit pygame loop
+                
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            mouse_pos = pygame.mouse.get_pos()
+            for i, mode in enumerate(self.game_modes):
+                if mode.rect.collidepoint(mouse_pos):
+                    # Deselect current
+                    self.game_modes[self.selected_mode].is_selected = False
+                    self.game_modes[self.selected_mode].border_color = WHITE
+                    self.game_modes[self.selected_mode].border_width = S(2)
+                    
+                    # Select new
+                    self.selected_mode = i
+                    mode.is_selected = True
+                    mode.border_color = ORANGE
+                    mode.border_width = S(4)
+                    
+                    # Handle specific mode actions
+                    if mode.title == "Ranked":
+                        print("Opening Tablesoccer Scoreboard...")
+                        self.main_app.start_tablesoccer()
+                        return False  # Exit pygame loop
+                    elif mode.title == "PaytoPlay":
+                        print("PaytoPlay clicked - Opening QR Code window")
+                        self.main_app.show_qr_code()
+                        return False  # Exit pygame loop
+                    break
+        return True
+    
+    def run(self):
+        running = True
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                        pygame.quit()
+                        sys.exit()
+                    else:
+                        if not self.handle_input(event):
+                            return  # Exit to tablesoccer or QR code
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if not self.handle_input(event):
+                        return  # Exit to tablesoccer or QR code
+            
+            # Draw everything
+            self.draw_background()
+            self.draw_title()
+            
+            # Draw game mode cards
+            for mode in self.game_modes:
+                mode.draw(self.screen, self.font_large, self.font_medium)
+            
+            self.draw_bottom_ui()
+            
+            pygame.display.flip()
+            self.clock.tick(FPS)
+
+# Tablesoccer Scoreboard Application (Fully scaled)
+class TableSoccerScoreboard:
+    def __init__(self, main_app):
+        self.main_app = main_app
+        self.root = tk.Tk()
+        self.root.title("Tablesoccer Scoreboard")
+        
+        # Scale the window size based on screen resolution
+        window_width = S(1200)
+        window_height = S(800)
+        self.root.geometry(f"{window_width}x{window_height}")
+        self.root.configure(bg='#1e3a5f')
+        
+        # Center the window on screen
+        x = (SCREEN_WIDTH - window_width) // 2
+        y = (SCREEN_HEIGHT - window_height) // 2
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        
+        # Game state variables
+        self.home_score = tk.IntVar(value=0)
+        self.away_score = tk.IntVar(value=0)
+        self.home_sets = tk.IntVar(value=0)
+        self.away_sets = tk.IntVar(value=0)
+        self.home_timeouts = tk.IntVar(value=2)
+        self.away_timeouts = tk.IntVar(value=2)
+        self.current_set = tk.IntVar(value=1)
+        self.serve_side = tk.StringVar(value="HOME")  # HOME or AWAY
+        
+        # Timer variables
+        self.game_minutes = tk.IntVar(value=15)
+        self.game_seconds = tk.IntVar(value=0)
+        self.timer_running = False
+        self.timer_thread = None
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        # Create main container with scaled padding
+        main_frame = tk.Frame(self.root, bg='#1e3a5f')
+        main_frame.pack(fill='both', expand=True, padx=S(20), pady=S(20))
+        
+        # Header section
+        self.create_header(main_frame)
+        
+        # Tablesoccer section with scores
+        self.create_tablesoccer_section(main_frame)
+        
+        # Control buttons section
+        self.create_control_section(main_frame)
+        
+        # Sets and timeouts section
+        self.create_sets_timeouts_section(main_frame)
+        
+        # Game clock section
+        self.create_game_clock_section(main_frame)
+        
+    def create_header(self, parent):
+        header_frame = tk.Frame(parent, bg='#1e3a5f')
+        header_frame.pack(fill='x', pady=(0, S(20)))
+        
+        # Back to RumbleVerse button with scaled font and padding
+        back_btn = tk.Button(header_frame, text="← Back to Game Modes", 
+                           font=('Arial', S(12), 'bold'), 
+                           bg='#4a6fa5', fg='white', bd=0, 
+                           padx=S(15), pady=S(5),
+                           command=self.back_to_rumbleverse)
+        back_btn.pack(side='left')
+        
+        # Team names with scaled fonts
+        tk.Label(header_frame, text="BULLDOGS", 
+                font=('Arial', S(18), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(side='left', padx=(S(20), 0))
+        
+        tk.Label(header_frame, text="FALCONS", 
+                font=('Arial', S(18), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(side='right', padx=(0, S(20)))
+        
+        # Refresh button with scaled font and padding
+        refresh_btn = tk.Button(header_frame, text="↻", 
+                              font=('Arial', S(16), 'bold'), 
+                              bg='#4a6fa5', fg='white', bd=0, 
+                              padx=S(10), pady=S(5),
+                              command=self.reset_game)
+        refresh_btn.pack(side='right')
+        
+    def create_tablesoccer_section(self, parent):
+        # Main tablesoccer container with scaled border
+        tablesoccer_frame = tk.Frame(parent, bg='#4a6fa5', relief='raised', bd=S(2))
+        tablesoccer_frame.pack(fill='x', pady=(0, S(20)))
+        
+        # Configure grid weights
+        tablesoccer_frame.grid_columnconfigure(0, weight=1)
+        tablesoccer_frame.grid_columnconfigure(1, weight=1)
+        tablesoccer_frame.grid_columnconfigure(2, weight=1)
+        
+        # Home team score section with scaled padding
+        home_frame = tk.Frame(tablesoccer_frame, bg='#4a6fa5')
+        home_frame.grid(row=0, column=0, padx=S(20), pady=S(20), sticky='ew')
+        
+        tk.Label(home_frame, textvariable=self.home_score, 
+                font=('Arial', S(72), 'bold'), 
+                fg='white', bg='#4a6fa5').pack()
+        tk.Label(home_frame, text="HOME TEAM", 
+                font=('Arial', S(12)), 
+                fg='#cccccc', bg='#4a6fa5').pack()
+        
+        # Center tablesoccer section
+        center_frame = tk.Frame(tablesoccer_frame, bg='#4a6fa5')
+        center_frame.grid(row=0, column=1, padx=S(20), pady=S(20))
+        
+        # Tablesoccer table placeholder with scaled canvas
+        canvas_size = S(120)
+        tablesoccer_canvas = tk.Canvas(center_frame, width=canvas_size, height=canvas_size, 
+                                    bg='#4a6fa5', highlightthickness=0)
+        tablesoccer_canvas.pack()
+        
+        # Draw tablesoccer table (all elements scaled)
+        tablesoccer_canvas.create_rectangle(S(20), S(30), S(100), S(90), 
+                                          fill='#228B22', outline='white', width=S(3))
+        # Draw center line
+        tablesoccer_canvas.create_line(S(60), S(30), S(60), S(90), 
+                                     fill='white', width=S(2))
+        # Draw goals
+        tablesoccer_canvas.create_rectangle(S(15), S(50), S(20), S(70), 
+                                          fill='white', outline='white')
+        tablesoccer_canvas.create_rectangle(S(100), S(50), S(105), S(70), 
+                                          fill='white', outline='white')
+        # Draw ball
+        tablesoccer_canvas.create_oval(S(55), S(55), S(65), S(65), 
+                                     fill='white', outline='black', width=1)
+        
+        tk.Label(center_frame, text="TABLESOCCER", 
+                font=('Arial', S(10), 'bold'), 
+                fg='white', bg='#4a6fa5').pack(pady=(S(5), 0))
+        tk.Label(center_frame, text="V/S", 
+                font=('Arial', S(16), 'bold'), 
+                fg='white', bg='#4a6fa5').pack()
+        
+        # Serve indicator with scaled elements
+        serve_frame = tk.Frame(center_frame, bg='#4a6fa5')
+        serve_frame.pack(pady=(S(10), 0))
+        
+        tk.Button(serve_frame, text="◀", 
+                 font=('Arial', S(12)), bg='#666666', fg='white', 
+                 bd=0, padx=S(10), 
+                 command=lambda: self.change_serve('HOME')).pack(side='left')
+        tk.Label(serve_frame, text="POSSESSION", 
+                font=('Arial', S(10), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(15)).pack(side='left')
+        tk.Button(serve_frame, text="▶", 
+                 font=('Arial', S(12)), bg='#666666', fg='white', 
+                 bd=0, padx=S(10), 
+                 command=lambda: self.change_serve('AWAY')).pack(side='left')
+        
+        # Away team score section with scaled padding
+        away_frame = tk.Frame(tablesoccer_frame, bg='#4a6fa5')
+        away_frame.grid(row=0, column=2, padx=S(20), pady=S(20), sticky='ew')
+        
+        tk.Label(away_frame, textvariable=self.away_score, 
+                font=('Arial', S(72), 'bold'), 
+                fg='white', bg='#4a6fa5').pack()
+        tk.Label(away_frame, text="AWAY TEAM", 
+                font=('Arial', S(12)), 
+                fg='#cccccc', bg='#4a6fa5').pack()
+        
+    def create_control_section(self, parent):
+        control_frame = tk.Frame(parent, bg='#1e3a5f')
+        control_frame.pack(fill='x', pady=(0, S(20)))
+        
+        # Left side - Home team controls with scaled elements
+        left_frame = tk.Frame(control_frame, bg='#1e3a5f')
+        left_frame.pack(side='left', padx=(0, S(20)))
+        
+        tk.Label(left_frame, text="GOALS", 
+                font=('Arial', S(10)), 
+                fg='#cccccc', bg='#1e3a5f').pack()
+        
+        home_points_frame = tk.Frame(left_frame, bg='#1e3a5f')
+        home_points_frame.pack(pady=S(5))
+        
+        tk.Button(home_points_frame, text="+1", 
+                 font=('Arial', S(16), 'bold'), 
+                 bg='#4a6fa5', fg='white', bd=0, 
+                 padx=S(20), pady=S(10),
+                 command=lambda: self.change_score('HOME', 1)).pack(side='left', padx=(0, S(5)))
+        tk.Button(home_points_frame, text="-1", 
+                 font=('Arial', S(16), 'bold'), 
+                 bg='#8b4a6b', fg='white', bd=0, 
+                 padx=S(20), pady=S(10),
+                 command=lambda: self.change_score('HOME', -1)).pack(side='left')
+        
+        # Center - Set indicator with scaled elements
+        center_frame = tk.Frame(control_frame, bg='#1e3a5f')
+        center_frame.pack(side='left', expand=True)
+        
+        set_frame = tk.Frame(center_frame, bg='#4a6fa5', relief='raised', bd=S(2))
+        set_frame.pack(pady=S(10))
+        
+        set_control_frame = tk.Frame(set_frame, bg='#4a6fa5')
+        set_control_frame.pack(padx=S(20), pady=S(15))
+        
+        tk.Button(set_control_frame, text="◀", 
+                 font=('Arial', S(12)), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(10), command=self.prev_set).pack(side='left')
+        self.set_label = tk.Label(set_control_frame, text="1st Game", 
+                                 font=('Arial', S(16), 'bold'), 
+                                 fg='white', bg='#4a6fa5', padx=S(20))
+        self.set_label.pack(side='left')
+        tk.Button(set_control_frame, text="▶", 
+                 font=('Arial', S(12)), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(10), command=self.next_set).pack(side='left')
+        
+        # Right side - Away team controls with scaled elements
+        right_frame = tk.Frame(control_frame, bg='#1e3a5f')
+        right_frame.pack(side='right', padx=(S(20), 0))
+        
+        tk.Label(right_frame, text="GOALS", 
+                font=('Arial', S(10)), 
+                fg='#cccccc', bg='#1e3a5f').pack()
+        
+        away_points_frame = tk.Frame(right_frame, bg='#1e3a5f')
+        away_points_frame.pack(pady=S(5))
+        
+        tk.Button(away_points_frame, text="-1", 
+                 font=('Arial', S(16), 'bold'), 
+                 bg='#8b4a6b', fg='white', bd=0, 
+                 padx=S(20), pady=S(10),
+                 command=lambda: self.change_score('AWAY', -1)).pack(side='left', padx=(0, S(5)))
+        tk.Button(away_points_frame, text="+1", 
+                 font=('Arial', S(16), 'bold'), 
+                 bg='#4a6fa5', fg='white', bd=0, 
+                 padx=S(20), pady=S(10),
+                 command=lambda: self.change_score('AWAY', 1)).pack(side='left')
+        
+    def create_sets_timeouts_section(self, parent):
+        stats_frame = tk.Frame(parent, bg='#1e3a5f')
+        stats_frame.pack(fill='x', pady=(0, S(20)))
+        
+        # Home team stats with scaled elements
+        home_stats = tk.Frame(stats_frame, bg='#1e3a5f')
+        home_stats.pack(side='left')
+        
+        # Games won
+        tk.Label(home_stats, text="GAMES WON", 
+                font=('Arial', S(10)), 
+                fg='#cccccc', bg='#1e3a5f').pack()
+        home_sets_frame = tk.Frame(home_stats, bg='#4a6fa5', relief='raised', bd=S(2))
+        home_sets_frame.pack(pady=S(5), padx=(0, S(10)))
+        
+        home_sets_control = tk.Frame(home_sets_frame, bg='#4a6fa5')
+        home_sets_control.pack(padx=S(10), pady=S(10))
+        
+        tk.Button(home_sets_control, text="−", 
+                 font=('Arial', S(12), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(8), command=lambda: self.change_sets('HOME', -1)).pack(side='left')
+        tk.Label(home_sets_control, textvariable=self.home_sets, 
+                font=('Arial', S(24), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(15)).pack(side='left')
+        tk.Button(home_sets_control, text="+", 
+                 font=('Arial', S(12), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(8), command=lambda: self.change_sets('HOME', 1)).pack(side='left')
+        
+        # Time outs
+        tk.Label(home_stats, text="TIME OUTS", 
+                font=('Arial', S(10)), 
+                fg='#cccccc', bg='#1e3a5f').pack(pady=(S(10), 0))
+        home_timeouts_frame = tk.Frame(home_stats, bg='#4a6fa5', relief='raised', bd=S(2))
+        home_timeouts_frame.pack(pady=S(5))
+        
+        home_timeouts_control = tk.Frame(home_timeouts_frame, bg='#4a6fa5')
+        home_timeouts_control.pack(padx=S(10), pady=S(10))
+        
+        tk.Button(home_timeouts_control, text="−", 
+                 font=('Arial', S(12), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(8), command=lambda: self.change_timeouts('HOME', -1)).pack(side='left')
+        tk.Label(home_timeouts_control, textvariable=self.home_timeouts, 
+                font=('Arial', S(24), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(15)).pack(side='left')
+        tk.Button(home_timeouts_control, text="+", 
+                 font=('Arial', S(12), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(8), command=lambda: self.change_timeouts('HOME', 1)).pack(side='left')
+        
+        # Center whistle button with scaled canvas
+        center_stats = tk.Frame(stats_frame, bg='#1e3a5f')
+        center_stats.pack(side='left', expand=True)
+        
+        whistle_size = S(80)
+        whistle_canvas = tk.Canvas(center_stats, width=whistle_size, height=whistle_size, 
+                                 bg='white', highlightthickness=0)
+        whistle_canvas.pack()
+        whistle_canvas.create_oval(S(10), S(10), S(70), S(70), 
+                                 fill='white', outline='#4a6fa5', width=S(2))
+        # Draw whistle icon (scaled)
+        whistle_canvas.create_oval(S(25), S(25), S(55), S(55), fill='#4a6fa5')
+        whistle_canvas.create_oval(S(30), S(30), S(50), S(50), fill='white')
+        whistle_canvas.create_line(S(40), S(25), S(40), S(15), 
+                                 fill='#4a6fa5', width=S(3))
+        whistle_canvas.bind("<Button-1>", self.sound_whistle)
+        
+        # Away team stats with scaled elements
+        away_stats = tk.Frame(stats_frame, bg='#1e3a5f')
+        away_stats.pack(side='right')
+        
+        # Time outs
+        tk.Label(away_stats, text="TIME OUTS", 
+                font=('Arial', S(10)), 
+                fg='#cccccc', bg='#1e3a5f').pack()
+        away_timeouts_frame = tk.Frame(away_stats, bg='#4a6fa5', relief='raised', bd=S(2))
+        away_timeouts_frame.pack(pady=S(5), padx=(S(10), 0))
+        
+        away_timeouts_control = tk.Frame(away_timeouts_frame, bg='#4a6fa5')
+        away_timeouts_control.pack(padx=S(10), pady=S(10))
+        
+        tk.Button(away_timeouts_control, text="−", 
+                 font=('Arial', S(12), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(8), command=lambda: self.change_timeouts('AWAY', -1)).pack(side='left')
+        tk.Label(away_timeouts_control, textvariable=self.away_timeouts, 
+                font=('Arial', S(24), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(15)).pack(side='left')
+        tk.Button(away_timeouts_control, text="+", 
+                 font=('Arial', S(12), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(8), command=lambda: self.change_timeouts('AWAY', 1)).pack(side='left')
+        
+        # Games won
+        tk.Label(away_stats, text="GAMES WON", 
+                font=('Arial', S(10)), 
+                fg='#cccccc', bg='#1e3a5f').pack(pady=(S(10), 0))
+        away_sets_frame = tk.Frame(away_stats, bg='#4a6fa5', relief='raised', bd=S(2))
+        away_sets_frame.pack(pady=S(5))
+        
+        away_sets_control = tk.Frame(away_sets_frame, bg='#4a6fa5')
+        away_sets_control.pack(padx=S(10), pady=S(10))
+        
+        tk.Button(away_sets_control, text="−", 
+                 font=('Arial', S(12), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(8), command=lambda: self.change_sets('AWAY', -1)).pack(side='left')
+        tk.Label(away_sets_control, textvariable=self.away_sets, 
+                font=('Arial', S(24), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(15)).pack(side='left')
+        tk.Button(away_sets_control, text="+", 
+                 font=('Arial', S(12), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(8), command=lambda: self.change_sets('AWAY', 1)).pack(side='left')
+        
+    def create_game_clock_section(self, parent):
+        clock_frame = tk.Frame(parent, bg='#4a6fa5', relief='raised', bd=S(2))
+        clock_frame.pack(fill='x', pady=S(10))
+        
+        clock_container = tk.Frame(clock_frame, bg='#4a6fa5')
+        clock_container.pack(pady=S(20))
+        
+        # Play button with scaled canvas
+        play_size = S(60)
+        play_canvas = tk.Canvas(clock_container, width=play_size, height=play_size, 
+                              bg='white', highlightthickness=0)
+        play_canvas.pack(side='left', padx=(0, S(20)))
+        play_canvas.create_oval(S(5), S(5), S(55), S(55), 
+                              fill='white', outline='#4a6fa5', width=S(2))
+        play_canvas.create_polygon(S(22), S(18), S(22), S(42), S(42), S(30), fill='#4a6fa5')
+        play_canvas.bind("<Button-1>", self.toggle_timer)
+        
+        # Game clock label with scaled font
+        tk.Label(clock_container, text="GAME CLOCK", 
+                font=('Arial', S(12), 'bold'), 
+                fg='white', bg='#4a6fa5').pack(side='left', padx=(0, S(20)))
+        
+        # Time display with scaled elements
+        time_frame = tk.Frame(clock_container, bg='#4a6fa5')
+        time_frame.pack(side='left', padx=(0, S(20)))
+        
+        minutes_frame = tk.Frame(time_frame, bg='#666666', relief='raised', bd=S(2))
+        minutes_frame.pack(side='left', padx=(0, S(5)))
+        self.minutes_label = tk.Label(minutes_frame, textvariable=self.game_minutes, 
+                                    font=('Arial', S(24), 'bold'), fg='white', bg='#666666', 
+                                    padx=S(15), pady=S(10))
+        self.minutes_label.pack()
+        
+        tk.Label(time_frame, text=":", 
+                font=('Arial', S(24), 'bold'), 
+                fg='white', bg='#4a6fa5').pack(side='left')
+        
+        seconds_frame = tk.Frame(time_frame, bg='#666666', relief='raised', bd=S(2))
+        seconds_frame.pack(side='left', padx=(S(5), 0))
+        self.seconds_label = tk.Label(seconds_frame, text="00", 
+                                    font=('Arial', S(24), 'bold'), fg='white', bg='#666666', 
+                                    padx=S(15), pady=S(10))
+        self.seconds_label.pack()
+        
+        # Reset button with scaled canvas
+        reset_size = S(60)
+        reset_canvas = tk.Canvas(clock_container, width=reset_size, height=reset_size, 
+                               bg='white', highlightthickness=0)
+        reset_canvas.pack(side='left', padx=(S(20), S(20)))
+        reset_canvas.create_oval(S(5), S(5), S(55), S(55), 
+                               fill='white', outline='#4a6fa5', width=S(2))
+        reset_canvas.create_arc(S(15), S(15), S(45), S(45), start=45, extent=270, 
+                              outline='#4a6fa5', width=S(3))
+        reset_canvas.create_polygon(S(42), S(18), S(48), S(24), S(42), S(30), fill='#4a6fa5')
+        reset_canvas.bind("<Button-1>", self.reset_timer)
+        
+        # Timer preset buttons with scaled elements
+        preset_frame = tk.Frame(clock_container, bg='#4a6fa5')
+        preset_frame.pack(side='left')
+        
+        btn1_frame = tk.Frame(preset_frame, bg='#666666', relief='raised', bd=S(2))
+        btn1_frame.pack(side='left', padx=(0, S(5)))
+        tk.Label(btn1_frame, text="1", 
+                font=('Arial', S(16), 'bold'), 
+                fg='white', bg='#666666', padx=S(15), pady=S(8)).pack()
+        tk.Label(btn1_frame, text="min", 
+                font=('Arial', S(8)), 
+                fg='white', bg='#666666').pack()
+        btn1_frame.bind("<Button-1>", lambda e: self.set_timer(1, 0))
+        
+        btn15_frame = tk.Frame(preset_frame, bg='#666666', relief='raised', bd=S(2))
+        btn15_frame.pack(side='left')
+        tk.Label(btn15_frame, text="15", 
+                font=('Arial', S(16), 'bold'), 
+                fg='white', bg='#666666', padx=S(12), pady=S(8)).pack()
+        tk.Label(btn15_frame, text="min", 
+                font=('Arial', S(8)), 
+                fg='white', bg='#666666').pack()
+        btn15_frame.bind("<Button-1>", lambda e: self.set_timer(15, 0))
+        
+    # Game logic methods (unchanged)
+    def change_score(self, team, delta):
+        if team == 'HOME':
+            new_score = max(0, self.home_score.get() + delta)
+            self.home_score.set(new_score)
+        else:
+            new_score = max(0, self.away_score.get() + delta)
+            self.away_score.set(new_score)
+            
+    def change_sets(self, team, delta):
+        if team == 'HOME':
+            new_sets = max(0, self.home_sets.get() + delta)
+            self.home_sets.set(new_sets)
+        else:
+            new_sets = max(0, self.away_sets.get() + delta)
+            self.away_sets.set(new_sets)
+            
+    def change_timeouts(self, team, delta):
+        if team == 'HOME':
+            new_timeouts = max(0, min(3, self.home_timeouts.get() + delta))
+            self.home_timeouts.set(new_timeouts)
+        else:
+            new_timeouts = max(0, min(3, self.away_timeouts.get() + delta))
+            self.away_timeouts.set(new_timeouts)
+            
+    def change_serve(self, team):
+        self.serve_side.set(team)
+        print(f"Ball possession changed to {team}")
+        
+    def next_set(self):
+        current = self.current_set.get()
+        if current < 5:
+            self.current_set.set(current + 1)
+            self.update_set_label()
+            
+    def prev_set(self):
+        current = self.current_set.get()
+        if current > 1:
+            self.current_set.set(current - 1)
+            self.update_set_label()
+            
+    def update_set_label(self):
+        set_num = self.current_set.get()
+        ordinals = ["", "1st", "2nd", "3rd", "4th", "5th"]
+        self.set_label.config(text=f"{ordinals[set_num]} Game")
+        
+    def sound_whistle(self, event):
+        print("Whistle blown!")
+        # In a real app, you would play a whistle sound file here
+        
+    def toggle_timer(self, event):
+        if self.timer_running:
+            self.stop_timer()
+        else:
+            self.start_timer()
+            
+    def start_timer(self):
+        if not self.timer_running:
+            self.timer_running = True
+            self.timer_thread = threading.Thread(target=self.run_timer)
+            self.timer_thread.daemon = True
+            self.timer_thread.start()
+            
+    def stop_timer(self):
+        self.timer_running = False
+        
+    def run_timer(self):
+        while self.timer_running:
+            time.sleep(1)
+            if self.timer_running:
+                current_seconds = self.game_seconds.get()
+                current_minutes = self.game_minutes.get()
+                
+                if current_seconds > 0:
+                    self.game_seconds.set(current_seconds - 1)
+                elif current_minutes > 0:
+                    self.game_minutes.set(current_minutes - 1)
+                    self.game_seconds.set(59)
+                else:
+                    self.timer_running = False
+                    
+                # Update seconds display
+                self.root.after(0, self.update_seconds_display)
+                
+    def update_seconds_display(self):
+        seconds = self.game_seconds.get()
+        self.seconds_label.config(text=f"{seconds:02d}")
+        
+    def reset_timer(self, event):
+        self.stop_timer()
+        self.set_timer(15, 0)
+        
+    def set_timer(self, minutes, seconds):
+        self.stop_timer()
+        self.game_minutes.set(minutes)
+        self.game_seconds.set(seconds)
+        self.update_seconds_display()
+        
+    def reset_game(self):
+        self.stop_timer()
+        self.home_score.set(0)
+        self.away_score.set(0)
+        self.home_sets.set(0)
+        self.away_sets.set(0)
+        self.home_timeouts.set(2)
+        self.away_timeouts.set(2)
+        self.current_set.set(1)
+        self.update_set_label()
+        self.set_timer(15, 0)
+        
+    def back_to_rumbleverse(self):
+        print("Back button clicked - returning to game modes...")
+        self.main_app.back_to_rumbleverse()
+        
+    def run(self):
+        # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.mainloop()
+        
+    def on_closing(self):
+        self.stop_timer()
+        self.root.destroy()
+        sys.exit()
+
+# Main Application Entry Point
+if __name__ == "__main__":
+    print("=== MERGED GAME APPLICATION WITH COMPREHENSIVE SCALING ===")
+    print("Starting with RumbleVerse Game Mode Selection...")
+    print("Click or press Enter on RANKED mode to open Tablesoccer Scoreboard")
+    print("Click PAYTOPAY to see QR Code payment window")
+    print("Use arrow keys to navigate, Enter to select, Esc to quit")
+    print("In Tablesoccer mode, use 'Back to Game Modes' button to return")
+    print("All interfaces now scale automatically to your screen resolution!")
+    print("=====================================")
+    
+    app = GameApplication()
+    app.start_rumbleverse()
