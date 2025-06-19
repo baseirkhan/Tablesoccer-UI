@@ -1,0 +1,1539 @@
+import pygame
+import tkinter as tk
+from tkinter import ttk
+import threading
+import time
+import sys
+import random
+from typing import List, Tuple
+
+# Initialize pygame and get screen info for scaling
+pygame.init()
+info = pygame.display.Info()
+SCREEN_WIDTH = info.current_w
+SCREEN_HEIGHT = info.current_h
+
+BASE_WIDTH = 1400  # original base design
+BASE_HEIGHT = 800
+
+scale_x = SCREEN_WIDTH / BASE_WIDTH
+scale_y = SCREEN_HEIGHT / BASE_HEIGHT
+scale = min(scale_x, scale_y)
+
+def S(x):
+    """Helper function to scale sizes based on screen resolution"""
+    return int(x * scale)
+
+# Debug print to confirm screen scaling values
+print(f"Detected resolution: {SCREEN_WIDTH}x{SCREEN_HEIGHT}, scale factor: {scale:.2f}")
+
+# On-Screen Keyboard Class
+class OnScreenKeyboard:
+    def __init__(self, parent, target_entry, is_password=False):
+        self.parent = parent
+        self.target_entry = target_entry
+        self.is_password = is_password
+        self.keyboard_window = None
+        self.shift_pressed = False
+        
+    def show_keyboard(self):
+        if self.keyboard_window:
+            self.keyboard_window.destroy()
+            
+        self.keyboard_window = tk.Toplevel(self.parent)
+        self.keyboard_window.title("Keyboard")
+        self.keyboard_window.configure(bg='#2a4a6b')
+        
+        # Position at bottom of screen
+        kb_width = S(1000)
+        kb_height = S(400)
+        x = (SCREEN_WIDTH - kb_width) // 2
+        y = SCREEN_HEIGHT - kb_height - S(50)
+        self.keyboard_window.geometry(f"{kb_width}x{kb_height}+{x}+{y}")
+        
+        # Make it stay on top
+        self.keyboard_window.attributes('-topmost', True)
+        
+        # Create keyboard layout
+        self.create_keyboard_layout()
+        
+    def create_keyboard_layout(self):
+        main_frame = tk.Frame(self.keyboard_window, bg='#2a4a6b')
+        main_frame.pack(fill='both', expand=True, padx=S(20), pady=S(20))
+        
+        # Row 1: Numbers
+        row1_frame = tk.Frame(main_frame, bg='#2a4a6b')
+        row1_frame.pack(fill='x', pady=(0, S(10)))
+        
+        numbers = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']
+        for num in numbers:
+            btn = tk.Button(row1_frame, text=num, font=('Arial', S(16), 'bold'),
+                           bg='white', fg='black', bd=S(2), relief='raised',
+                           padx=S(15), pady=S(10),
+                           command=lambda n=num: self.key_press(n))
+            btn.pack(side='left', padx=S(5), fill='x', expand=True)
+            
+        # Row 2: QWERTY
+        row2_frame = tk.Frame(main_frame, bg='#2a4a6b')
+        row2_frame.pack(fill='x', pady=(0, S(10)))
+        
+        qwerty = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P']
+        for letter in qwerty:
+            display_text = letter if self.shift_pressed else letter.lower()
+            btn = tk.Button(row2_frame, text=display_text, font=('Arial', S(16), 'bold'),
+                           bg='white', fg='black', bd=S(2), relief='raised',
+                           padx=S(15), pady=S(10),
+                           command=lambda l=letter: self.key_press(l if self.shift_pressed else l.lower()))
+            btn.pack(side='left', padx=S(5), fill='x', expand=True)
+            
+        # Row 3: ASDF
+        row3_frame = tk.Frame(main_frame, bg='#2a4a6b')
+        row3_frame.pack(fill='x', pady=(0, S(10)))
+        
+        asdf = ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L']
+        for letter in asdf:
+            display_text = letter if self.shift_pressed else letter.lower()
+            btn = tk.Button(row3_frame, text=display_text, font=('Arial', S(16), 'bold'),
+                           bg='white', fg='black', bd=S(2), relief='raised',
+                           padx=S(15), pady=S(10),
+                           command=lambda l=letter: self.key_press(l if self.shift_pressed else l.lower()))
+            btn.pack(side='left', padx=S(5), fill='x', expand=True)
+            
+        # Row 4: ZXCV and controls
+        row4_frame = tk.Frame(main_frame, bg='#2a4a6b')
+        row4_frame.pack(fill='x', pady=(0, S(10)))
+        
+        # Shift button
+        shift_btn = tk.Button(row4_frame, text="⇧ SHIFT", font=('Arial', S(14), 'bold'),
+                             bg='#4a6fa5' if self.shift_pressed else '#cccccc', 
+                             fg='white' if self.shift_pressed else 'black', 
+                             bd=S(2), relief='raised',
+                             padx=S(10), pady=S(10),
+                             command=self.toggle_shift)
+        shift_btn.pack(side='left', padx=S(5))
+        
+        zxcv = ['Z', 'X', 'C', 'V', 'B', 'N', 'M']
+        for letter in zxcv:
+            display_text = letter if self.shift_pressed else letter.lower()
+            btn = tk.Button(row4_frame, text=display_text, font=('Arial', S(16), 'bold'),
+                           bg='white', fg='black', bd=S(2), relief='raised',
+                           padx=S(15), pady=S(10),
+                           command=lambda l=letter: self.key_press(l if self.shift_pressed else l.lower()))
+            btn.pack(side='left', padx=S(5), fill='x', expand=True)
+            
+        # Backspace button
+        backspace_btn = tk.Button(row4_frame, text="⌫ DEL", font=('Arial', S(14), 'bold'),
+                                 bg='#8b4a6b', fg='white', bd=S(2), relief='raised',
+                                 padx=S(10), pady=S(10),
+                                 command=self.backspace)
+        backspace_btn.pack(side='right', padx=S(5))
+        
+        # Row 5: Space and controls
+        row5_frame = tk.Frame(main_frame, bg='#2a4a6b')
+        row5_frame.pack(fill='x')
+        
+        # Special characters
+        special_chars = ['@', '.', '_', '-']
+        for char in special_chars:
+            btn = tk.Button(row5_frame, text=char, font=('Arial', S(16), 'bold'),
+                           bg='white', fg='black', bd=S(2), relief='raised',
+                           padx=S(15), pady=S(10),
+                           command=lambda c=char: self.key_press(c))
+            btn.pack(side='left', padx=S(5))
+            
+        # Space bar
+        space_btn = tk.Button(row5_frame, text="SPACE", font=('Arial', S(16), 'bold'),
+                             bg='#cccccc', fg='black', bd=S(2), relief='raised',
+                             padx=S(50), pady=S(10),
+                             command=lambda: self.key_press(' '))
+        space_btn.pack(side='left', padx=S(20), fill='x', expand=True)
+        
+        # Done button
+        done_btn = tk.Button(row5_frame, text="DONE", font=('Arial', S(16), 'bold'),
+                            bg='#4a6fa5', fg='white', bd=S(2), relief='raised',
+                            padx=S(20), pady=S(10),
+                            command=self.hide_keyboard)
+        done_btn.pack(side='right', padx=S(5))
+        
+    def key_press(self, key):
+        current_text = self.target_entry.get()
+        self.target_entry.delete(0, tk.END)
+        self.target_entry.insert(0, current_text + key)
+        
+    def backspace(self):
+        current_text = self.target_entry.get()
+        if current_text:
+            self.target_entry.delete(0, tk.END)
+            self.target_entry.insert(0, current_text[:-1])
+            
+    def toggle_shift(self):
+        self.shift_pressed = not self.shift_pressed
+        self.create_keyboard_layout()  # Refresh keyboard with new case
+        
+    def hide_keyboard(self):
+        if self.keyboard_window:
+            self.keyboard_window.destroy()
+            self.keyboard_window = None
+
+class MultiLevelGameApplication:
+    def __init__(self):
+        self.current_screen = "main_menu"  # main_menu, login, game_modes, paymodes, tablesoccer, qrcode
+        self.selected_main_option = None  # "RANKED" or "TRAINING"
+        self.selected_game_mode = None  # "CLASSIC", "BEST_OF_2_TO_5", "TIME_TRIAL", "SPEED_TRIAL"
+        self.root = None
+        self.main_frame = None
+        self.current_app = None
+        self.running = True
+        
+    def initialize_fullscreen_window(self):
+        """Initialize the main tkinter window in fullscreen"""
+        self.root = tk.Tk()
+        self.root.title("Multi-Level Game Application")
+        
+        # Set fullscreen
+        self.root.geometry(f"{SCREEN_WIDTH}x{SCREEN_HEIGHT}+0+0")
+        self.root.configure(bg='#1e3a5f')
+        
+        # Make it fullscreen and remove window decorations
+        self.root.overrideredirect(True)
+        self.root.state('zoomed') if sys.platform == 'win32' else self.root.attributes('-zoomed', True)
+        
+        # Create main container frame
+        self.main_frame = tk.Frame(self.root, bg='#1e3a5f')
+        self.main_frame.pack(fill='both', expand=True)
+        
+        # Handle ESC key for exit and touch events
+        self.root.bind('<Escape>', lambda e: self.on_closing())
+        self.root.bind('<Button-1>', self.handle_touch)  # Touch support
+        self.root.focus_set()
+        
+    def handle_touch(self, event):
+        """Handle touch events globally"""
+        # This will be handled by individual widgets
+        pass
+        
+    def clear_frame(self):
+        """Clear all widgets from the main frame"""
+        for widget in self.main_frame.winfo_children():
+            widget.destroy()
+            
+    def start_main_menu(self):
+        """Start with pygame Main Menu (Level 1)"""
+        self.current_screen = "main_menu"
+        
+        # If tkinter window exists, destroy it
+        if self.root:
+            self.root.destroy()
+            self.root = None
+            
+        # Initialize pygame if not already initialized
+        if not pygame.get_init():
+            pygame.init()
+            
+        self.current_app = MainMenuUI(self)
+        self.current_app.run()
+        
+    def show_login_screen(self, selected_option):
+        """Show login screen (Level 2)"""
+        self.selected_main_option = selected_option
+        self.current_screen = "login"
+        
+        # Quit pygame if running
+        if pygame.get_init():
+            pygame.quit()
+            
+        # Initialize fullscreen tkinter window
+        if not self.root:
+            self.initialize_fullscreen_window()
+        else:
+            self.clear_frame()
+            
+        self.root.title(f"Login - {selected_option} Mode")
+        self.current_app = LoginScreen(self, self.main_frame)
+        self.run_tkinter_loop()
+        
+    def show_game_modes(self):
+        """Show game modes screen (Level 3)"""
+        self.current_screen = "game_modes"
+        
+        # Quit pygame if running
+        if pygame.get_init():
+            pygame.quit()
+            
+        # Initialize fullscreen tkinter window
+        if not self.root:
+            self.initialize_fullscreen_window()
+        else:
+            self.clear_frame()
+            
+        self.root.title("Game Modes Selection")
+        self.current_app = GameModesScreen(self, self.main_frame)
+        self.run_tkinter_loop()
+        
+    def show_paymodes(self, selected_game_mode):
+        """Show payment modes screen (Level 4)"""
+        self.selected_game_mode = selected_game_mode
+        self.current_screen = "paymodes"
+        
+        if not self.root:
+            self.initialize_fullscreen_window()
+        else:
+            self.clear_frame()
+            
+        self.root.title("Payment Modes")
+        self.current_app = PayModesScreen(self, self.main_frame)
+        self.run_tkinter_loop()
+        
+    def start_tablesoccer(self):
+        """Start tablesoccer scoreboard"""
+        self.current_screen = "tablesoccer"
+        
+        if not self.root:
+            self.initialize_fullscreen_window()
+        else:
+            self.clear_frame()
+            
+        self.root.title("Tablesoccer Scoreboard")
+        self.current_app = TableSoccerScoreboard(self, self.main_frame)
+        self.run_tkinter_loop()
+        
+    def show_qr_code(self):
+        """Show QR code payment interface"""
+        self.current_screen = "qrcode"
+        
+        if not self.root:
+            self.initialize_fullscreen_window()
+        else:
+            self.clear_frame()
+            
+        self.root.title("QR Code Payment")
+        self.current_app = QRCodeWindow(self, self.main_frame)
+        self.run_tkinter_loop()
+        
+    def back_to_main_menu(self):
+        """Return to main menu"""
+        print("Returning to Main Menu...")
+        self.selected_main_option = None
+        self.selected_game_mode = None
+        
+        # Stop any running timers
+        if hasattr(self.current_app, 'stop_timer'):
+            self.current_app.stop_timer()
+            
+        time.sleep(0.1)
+        
+        try:
+            self.start_main_menu()
+        except Exception as e:
+            print(f"Error returning to main menu: {e}")
+            
+    def back_to_login(self):
+        """Return to login screen"""
+        print("Returning to Login...")
+        self.show_login_screen(self.selected_main_option)
+        
+    def back_to_game_modes(self):
+        """Return to game modes screen"""
+        print("Returning to Game Modes...")
+        self.show_game_modes()
+        
+    def run_tkinter_loop(self):
+        """Run the tkinter main loop"""
+        if self.root:
+            self.root.mainloop()
+            
+    def on_closing(self):
+        """Handle window closing"""
+        if hasattr(self.current_app, 'stop_timer'):
+            self.current_app.stop_timer()
+        if pygame.get_init():
+            pygame.quit()
+        if self.root:
+            self.root.destroy()
+        sys.exit()
+
+# Level 1: Main Menu (Pygame) - Touch Support Added
+FPS = 60
+PURPLE_DARK = (45, 25, 85)
+PURPLE_MID = (85, 45, 125)
+PURPLE_LIGHT = (125, 85, 165)
+CYAN = (64, 224, 255)
+ORANGE = (255, 165, 0)
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (128, 128, 128)
+
+class MainMenuCard:
+    def __init__(self, x: int, y: int, width: int, height: int, title: str, icon_type: str,
+                 color: Tuple[int, int, int] = PURPLE_MID, border_color: Tuple[int, int, int] = WHITE,
+                 is_selected: bool = False):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.title = title
+        self.icon_type = icon_type  # "star" or "smiley"
+        self.color = color
+        self.border_color = border_color if not is_selected else ORANGE
+        self.is_selected = is_selected
+        self.border_width = S(4 if is_selected else 2)
+        
+    def draw_star(self, screen, center_x, center_y, size):
+        """Draw a star icon"""
+        points = []
+        for i in range(10):
+            angle = i * 36 - 90  # Start from top
+            if i % 2 == 0:
+                radius = size
+            else:
+                radius = size * 0.4
+            x = center_x + radius * pygame.math.Vector2(1, 0).rotate(angle).x
+            y = center_y + radius * pygame.math.Vector2(1, 0).rotate(angle).y
+            points.append((x, y))
+        pygame.draw.polygon(screen, WHITE, points)
+        pygame.draw.polygon(screen, BLACK, points, S(3))
+        
+    def draw_smiley(self, screen, center_x, center_y, size):
+        """Draw a smiley face icon"""
+        # Face circle
+        pygame.draw.circle(screen, WHITE, (center_x, center_y), size)
+        pygame.draw.circle(screen, BLACK, (center_x, center_y), size, S(3))
+        
+        # Eyes
+        eye_offset = size // 3
+        pygame.draw.circle(screen, BLACK, (center_x - eye_offset, center_y - eye_offset//2), S(8))
+        pygame.draw.circle(screen, BLACK, (center_x + eye_offset, center_y - eye_offset//2), S(8))
+        
+        # Smile
+        smile_rect = pygame.Rect(center_x - eye_offset, center_y, eye_offset * 2, eye_offset)
+        pygame.draw.arc(screen, BLACK, smile_rect, 0, 3.14159, S(5))
+        
+    def draw(self, screen: pygame.Surface, font_large: pygame.font.Font):
+        # Draw card background
+        pygame.draw.rect(screen, self.color, self.rect)
+        pygame.draw.rect(screen, self.border_color, self.rect, self.border_width)
+        
+        # Draw icon
+        icon_center_x = self.rect.centerx
+        icon_center_y = self.rect.centery - S(30)
+        icon_size = S(50)
+        
+        if self.icon_type == "star":
+            self.draw_star(screen, icon_center_x, icon_center_y, icon_size)
+        elif self.icon_type == "smiley":
+            self.draw_smiley(screen, icon_center_x, icon_center_y, icon_size)
+        
+        # Draw title
+        title_surface = font_large.render(self.title, True, WHITE)
+        title_rect = title_surface.get_rect(center=(self.rect.centerx, self.rect.bottom - S(40)))
+        screen.blit(title_surface, title_rect)
+
+class MainMenuUI:
+    def __init__(self, main_app):
+        self.main_app = main_app
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("Main Menu - Level 1")
+        self.clock = pygame.time.Clock()
+        
+        # Fonts
+        self.font_title = pygame.font.Font(None, S(72))
+        self.font_large = pygame.font.Font(None, S(48))
+        self.font_medium = pygame.font.Font(None, S(36))
+        self.font_small = pygame.font.Font(None, S(24))
+        
+        # Main menu cards
+        card_width = S(300)
+        card_height = S(400)
+        spacing = S(100)
+        start_x = (SCREEN_WIDTH - (2 * card_width + spacing)) // 2
+        card_y = S(250)
+        
+        self.menu_options = [
+            MainMenuCard(start_x, card_y, card_width, card_height, "RANKED", "star", PURPLE_MID, ORANGE, True),
+            MainMenuCard(start_x + card_width + spacing, card_y, card_width, card_height, "TRAINING", "smiley", PURPLE_MID)
+        ]
+        
+        self.selected_option = 0
+        
+    def draw_background(self):
+        # Create gradient background
+        for y in range(SCREEN_HEIGHT):
+            color_ratio = y / SCREEN_HEIGHT
+            r = int(PURPLE_DARK[0] + (PURPLE_LIGHT[0] - PURPLE_DARK[0]) * color_ratio)
+            g = int(PURPLE_DARK[1] + (PURPLE_LIGHT[1] - PURPLE_DARK[1]) * color_ratio)
+            b = int(PURPLE_DARK[2] + (PURPLE_LIGHT[2] - PURPLE_DARK[2]) * color_ratio)
+            pygame.draw.line(self.screen, (r, g, b), (0, y), (SCREEN_WIDTH, y))
+        
+        # Draw background elements
+        for i in range(15):
+            building_x = i * S(90)
+            building_height = S(80) + (i * S(20)) % S(150)
+            building_width = S(60) + (i * S(15)) % S(25)
+            color_variation = 15 + (i * 10) % 30
+            building_color = (PURPLE_DARK[0] + color_variation, 
+                            PURPLE_DARK[1] + color_variation, 
+                            PURPLE_DARK[2] + color_variation)
+            pygame.draw.rect(self.screen, building_color, 
+                           (building_x, SCREEN_HEIGHT - building_height, building_width, building_height))
+    
+    def draw_title(self):
+        # Main title
+        title_surface = self.font_title.render("MAIN MENU", True, CYAN)
+        title_rect = title_surface.get_rect(center=(SCREEN_WIDTH // 2, S(80)))
+        self.screen.blit(title_surface, title_rect)
+        
+        # Decorative line
+        line_y = S(160)
+        pygame.draw.line(self.screen, CYAN, (S(50), line_y), (SCREEN_WIDTH - S(50), line_y), S(3))
+        
+        # Instructions
+        instruction_surface = self.font_small.render("Touch RANKED or TRAINING to continue", True, WHITE)
+        instruction_rect = instruction_surface.get_rect(center=(SCREEN_WIDTH // 2, S(190)))
+        self.screen.blit(instruction_surface, instruction_rect)
+    
+    def draw_bottom_ui(self):
+        controls = [
+            ("Touch", "Select"),
+            ("Esc", "Exit")
+        ]
+        
+        x_pos = S(50)
+        for key, action in controls:
+            # Key background
+            key_rect = pygame.Rect(x_pos, SCREEN_HEIGHT - S(60), S(100), S(30))
+            pygame.draw.rect(self.screen, GRAY, key_rect)
+            pygame.draw.rect(self.screen, WHITE, key_rect, S(2))
+            
+            # Key text
+            key_surface = self.font_small.render(key, True, BLACK)
+            key_text_rect = key_surface.get_rect(center=key_rect.center)
+            self.screen.blit(key_surface, key_text_rect)
+            
+            # Action text
+            action_surface = self.font_small.render(action, True, WHITE)
+            self.screen.blit(action_surface, (x_pos + S(110), SCREEN_HEIGHT - S(55)))
+            
+            x_pos += S(250)
+    
+    def handle_input(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_LEFT and self.selected_option > 0:
+                self.menu_options[self.selected_option].is_selected = False
+                self.menu_options[self.selected_option].border_color = WHITE
+                self.menu_options[self.selected_option].border_width = S(2)
+                self.selected_option -= 1
+                self.menu_options[self.selected_option].is_selected = True
+                self.menu_options[self.selected_option].border_color = ORANGE
+                self.menu_options[self.selected_option].border_width = S(4)
+                
+            elif event.key == pygame.K_RIGHT and self.selected_option < len(self.menu_options) - 1:
+                self.menu_options[self.selected_option].is_selected = False
+                self.menu_options[self.selected_option].border_color = WHITE
+                self.menu_options[self.selected_option].border_width = S(2)
+                self.selected_option += 1
+                self.menu_options[self.selected_option].is_selected = True
+                self.menu_options[self.selected_option].border_color = ORANGE
+                self.menu_options[self.selected_option].border_width = S(4)
+                
+            elif event.key == pygame.K_RETURN:
+                selected_title = self.menu_options[self.selected_option].title
+                print(f"Selected: {selected_title}")
+                self.main_app.show_login_screen(selected_title)
+                return False
+                
+        elif event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.FINGERDOWN:
+            # Handle both mouse and touch events
+            if event.type == pygame.FINGERDOWN:
+                # Convert normalized finger coordinates to screen coordinates
+                mouse_pos = (int(event.x * SCREEN_WIDTH), int(event.y * SCREEN_HEIGHT))
+            else:
+                mouse_pos = pygame.mouse.get_pos()
+                
+            for i, option in enumerate(self.menu_options):
+                if option.rect.collidepoint(mouse_pos):
+                    # Deselect current
+                    self.menu_options[self.selected_option].is_selected = False
+                    self.menu_options[self.selected_option].border_color = WHITE
+                    self.menu_options[self.selected_option].border_width = S(2)
+                    
+                    # Select new
+                    self.selected_option = i
+                    option.is_selected = True
+                    option.border_color = ORANGE
+                    option.border_width = S(4)
+                    
+                    # Navigate to login
+                    print(f"Touched: {option.title}")
+                    self.main_app.show_login_screen(option.title)
+                    return False
+        return True
+    
+    def run(self):
+        running = True
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                        pygame.quit()
+                        sys.exit()
+                    else:
+                        if not self.handle_input(event):
+                            return
+                elif event.type in [pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN]:
+                    if not self.handle_input(event):
+                        return
+            
+            # Draw everything
+            self.draw_background()
+            self.draw_title()
+            
+            for option in self.menu_options:
+                option.draw(self.screen, self.font_large)
+            
+            self.draw_bottom_ui()
+            
+            pygame.display.flip()
+            self.clock.tick(FPS)
+
+# Level 2: Login Screen (Tkinter) - FIXED LAYOUT FOR LOGIN BUTTON VISIBILITY
+class LoginScreen:
+    def __init__(self, main_app, parent_frame):
+        self.main_app = main_app
+        self.parent_frame = parent_frame
+        self.username_keyboard = None
+        self.password_keyboard = None
+        self.setup_ui()
+        
+    def setup_ui(self):
+        main_frame = tk.Frame(self.parent_frame, bg='#1e3a5f')
+        main_frame.pack(fill='both', expand=True)
+        
+        # Header - Reduced padding
+        header_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        header_frame.pack(fill='x', pady=(S(20), S(10)))  # Reduced from S(30), S(20)
+        
+        # Back button - Touch optimized
+        back_btn = tk.Button(header_frame, text="← Back to Main Menu", 
+                           font=('Arial', S(18), 'bold'),  # Reduced from S(20)
+                           bg='#4a6fa5', fg='white', bd=0, 
+                           padx=S(30), pady=S(15),  # Reduced padding
+                           command=self.main_app.back_to_main_menu)
+        back_btn.pack(side='left', padx=(S(40), 0))  # Reduced from S(50)
+        
+        # Touch instruction
+        tk.Label(header_frame, text="Touch fields to enter text", 
+                font=('Arial', S(14)),  # Reduced from S(16)
+                fg='#cccccc', bg='#1e3a5f').pack(side='right', padx=(0, S(40)))
+        
+        # Center content
+        center_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        center_frame.pack(expand=True, fill='both')
+        
+        # Title - Reduced size
+        tk.Label(center_frame, text="LOGIN", 
+                font=('Arial', S(36), 'bold'),  # Reduced from S(48)
+                fg='white', bg='#1e3a5f').pack(pady=(S(10), S(15)))  # Reduced padding
+        
+        # Selected mode display - Reduced size
+        mode_frame = tk.Frame(center_frame, bg='#4a6fa5', bd=S(3), relief='raised')  # Reduced border
+        mode_frame.pack(pady=S(15), padx=S(150))  # Reduced padding
+        
+        tk.Label(mode_frame, text=f"Selected Mode: {self.main_app.selected_main_option}", 
+                font=('Arial', S(16), 'bold'),  # Reduced from S(20)
+                fg='white', bg='#4a6fa5', pady=S(15)).pack()  # Reduced padding
+        
+        # Login form - Compact layout
+        form_frame = tk.Frame(center_frame, bg='#4a6fa5', bd=S(3), relief='raised')
+        form_frame.pack(pady=S(15), padx=S(120))  # Reduced padding and margins
+        
+        # Username section - Compact
+        username_section = tk.Frame(form_frame, bg='#4a6fa5')
+        username_section.pack(pady=(S(15), S(10)), fill='x')  # Reduced padding
+        
+        tk.Label(username_section, text="Username:", 
+                font=('Arial', S(16)),  # Reduced from S(20)
+                fg='white', bg='#4a6fa5').pack()
+        
+        username_input_frame = tk.Frame(username_section, bg='#4a6fa5')
+        username_input_frame.pack(pady=S(8), fill='x')  # Reduced padding
+        
+        self.username_entry = tk.Entry(username_input_frame, font=('Arial', S(16)),  # Reduced font
+                                     width=18,  # Reduced width
+                                     justify='center', 
+                                     bg='white', fg='black', bd=S(2), relief='solid')
+        self.username_entry.pack(side='left', pady=S(3), ipady=S(8), padx=(S(15), S(8)))  # Reduced padding
+        
+        username_kb_btn = tk.Button(username_input_frame, text="⌨", 
+                                   font=('Arial', S(18)),  # Reduced from S(20)
+                                   bg='#8b4a6b', fg='white', bd=0, 
+                                   padx=S(12), pady=S(8),  # Reduced padding
+                                   command=self.show_username_keyboard)
+        username_kb_btn.pack(side='left')
+        
+        # Password section - Compact
+        password_section = tk.Frame(form_frame, bg='#4a6fa5')
+        password_section.pack(pady=S(10), fill='x')  # Reduced padding
+        
+        tk.Label(password_section, text="Password:", 
+                font=('Arial', S(16)),  # Reduced from S(20)
+                fg='white', bg='#4a6fa5').pack()
+        
+        password_input_frame = tk.Frame(password_section, bg='#4a6fa5')
+        password_input_frame.pack(pady=S(8), fill='x')  # Reduced padding
+        
+        self.password_entry = tk.Entry(password_input_frame, font=('Arial', S(16)),  # Reduced font
+                                     width=18, show='*', justify='center',  # Reduced width
+                                     bg='white', fg='black', bd=S(2), relief='solid')
+        self.password_entry.pack(side='left', pady=S(3), ipady=S(8), padx=(S(15), S(8)))  # Reduced padding
+        
+        password_kb_btn = tk.Button(password_input_frame, text="⌨", 
+                                   font=('Arial', S(18)),  # Reduced from S(20)
+                                   bg='#8b4a6b', fg='white', bd=0, 
+                                   padx=S(12), pady=S(8),  # Reduced padding
+                                   command=self.show_password_keyboard)
+        password_kb_btn.pack(side='left')
+        
+        # Login button - Compact but visible
+        login_btn = tk.Button(form_frame, text="LOGIN", 
+                            font=('Arial', S(20), 'bold'),  # Reduced from S(24)
+                            bg='#8b4a6b', fg='white', bd=0, 
+                            padx=S(50), pady=S(15),  # Reduced padding
+                            command=self.handle_login)
+        login_btn.pack(pady=S(20))  # Reduced from S(30)
+        
+        # Instructions - Compact
+        tk.Label(center_frame, text="Enter credentials to continue", 
+                font=('Arial', S(14)),  # Reduced from S(16)
+                fg='#cccccc', bg='#1e3a5f').pack(pady=S(15))  # Reduced padding
+        
+    def show_username_keyboard(self):
+        if self.username_keyboard:
+            self.username_keyboard.hide_keyboard()
+        self.username_keyboard = OnScreenKeyboard(self.main_app.root, self.username_entry, False)
+        self.username_keyboard.show_keyboard()
+        
+    def show_password_keyboard(self):
+        if self.password_keyboard:
+            self.password_keyboard.hide_keyboard()
+        self.password_keyboard = OnScreenKeyboard(self.main_app.root, self.password_entry, True)
+        self.password_keyboard.show_keyboard()
+        
+    def handle_login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        
+        # Hide any open keyboards
+        if self.username_keyboard:
+            self.username_keyboard.hide_keyboard()
+        if self.password_keyboard:
+            self.password_keyboard.hide_keyboard()
+        
+        if username and password:
+            print(f"Login successful for {username} in {self.main_app.selected_main_option} mode")
+            self.main_app.show_game_modes()
+        else:
+            # Show error message - Touch optimized
+            error_window = tk.Toplevel(self.main_app.root)
+            error_window.title("Login Error")
+            error_window.geometry(f"{S(500)}x{S(250)}")
+            error_window.configure(bg='#1e3a5f')
+            
+            # Center the error window
+            x = (SCREEN_WIDTH - S(500)) // 2
+            y = (SCREEN_HEIGHT - S(250)) // 2
+            error_window.geometry(f"{S(500)}x{S(250)}+{x}+{y}")
+            
+            tk.Label(error_window, text="Please enter both username and password", 
+                    font=('Arial', S(18)), 
+                    fg='white', bg='#1e3a5f').pack(pady=S(60))
+            
+            tk.Button(error_window, text="OK", 
+                     font=('Arial', S(16)), 
+                     bg='#4a6fa5', fg='white', bd=0, 
+                     padx=S(30), pady=S(15),
+                     command=error_window.destroy).pack()
+
+# Level 3: Game Modes Screen (Tkinter) - Touch Support Added
+class GameModesScreen:
+    def __init__(self, main_app, parent_frame):
+        self.main_app = main_app
+        self.parent_frame = parent_frame
+        self.setup_ui()
+        
+    def setup_ui(self):
+        main_frame = tk.Frame(self.parent_frame, bg='#1e3a5f')
+        main_frame.pack(fill='both', expand=True)
+        
+        # Header
+        header_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        header_frame.pack(fill='x', pady=(S(30), S(20)))
+        
+        # Back button - Touch optimized
+        back_btn = tk.Button(header_frame, text="← Back to Login", 
+                           font=('Arial', S(20), 'bold'), 
+                           bg='#4a6fa5', fg='white', bd=0, 
+                           padx=S(40), pady=S(20),
+                           command=self.main_app.back_to_login)
+        back_btn.pack(side='left', padx=(S(50), 0))
+        
+        # Touch instruction
+        tk.Label(header_frame, text="Touch to select", 
+                font=('Arial', S(16)), 
+                fg='#cccccc', bg='#1e3a5f').pack(side='right', padx=(0, S(50)))
+        
+        # Center content
+        center_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        center_frame.pack(expand=True, fill='both')
+        
+        # Title
+        tk.Label(center_frame, text="GAME MODES", 
+                font=('Arial', S(48), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(pady=(0, S(40)))
+        
+        # Game modes grid - Touch optimized
+        modes_frame = tk.Frame(center_frame, bg='#1e3a5f')
+        modes_frame.pack(pady=S(20))
+        
+        game_modes = [
+            ("CLASSIC", "Traditional gameplay"),
+            ("BEST OF 2 TO 5", "Tournament style"),
+            ("TIME TRIAL", "Race against time"),
+            ("SPEED TRIAL", "Fast-paced action")
+        ]
+        
+        # Create 2x2 grid with larger touch targets
+        for i, (mode, description) in enumerate(game_modes):
+            row = i // 2
+            col = i % 2
+            
+            mode_frame = tk.Frame(modes_frame, bg='#4a6fa5', bd=S(4), relief='raised')
+            mode_frame.grid(row=row, column=col, padx=S(30), pady=S(20), sticky='nsew')
+            
+            # Mode button - Touch optimized
+            mode_btn = tk.Button(mode_frame, text=mode, 
+                               font=('Arial', S(22), 'bold'), 
+                               bg='#4a6fa5', fg='white', bd=0, 
+                               padx=S(40), pady=S(30),
+                               command=lambda m=mode: self.select_game_mode(m))
+            mode_btn.pack(pady=(S(30), S(15)))
+            
+            # Description
+            tk.Label(mode_frame, text=description, 
+                    font=('Arial', S(16)), 
+                    fg='#cccccc', bg='#4a6fa5').pack(pady=(0, S(30)))
+        
+        # Configure grid weights
+        modes_frame.grid_columnconfigure(0, weight=1)
+        modes_frame.grid_columnconfigure(1, weight=1)
+        
+    def select_game_mode(self, mode):
+        print(f"Selected game mode: {mode}")
+        self.main_app.show_paymodes(mode)
+
+# Level 4: Payment Modes Screen (Tkinter) - Touch Support Added
+class PayModesScreen:
+    def __init__(self, main_app, parent_frame):
+        self.main_app = main_app
+        self.parent_frame = parent_frame
+        self.setup_ui()
+        
+    def setup_ui(self):
+        main_frame = tk.Frame(self.parent_frame, bg='#1e3a5f')
+        main_frame.pack(fill='both', expand=True)
+        
+        # Header
+        header_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        header_frame.pack(fill='x', pady=(S(30), S(20)))
+        
+        # Back button - Touch optimized
+        back_btn = tk.Button(header_frame, text="← Back to Game Modes", 
+                           font=('Arial', S(20), 'bold'), 
+                           bg='#4a6fa5', fg='white', bd=0, 
+                           padx=S(40), pady=S(20),
+                           command=self.main_app.back_to_game_modes)
+        back_btn.pack(side='left', padx=(S(50), 0))
+        
+        # Touch instruction
+        tk.Label(header_frame, text="Touch to select payment", 
+                font=('Arial', S(16)), 
+                fg='#cccccc', bg='#1e3a5f').pack(side='right', padx=(0, S(50)))
+        
+        # Center content
+        center_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        center_frame.pack(expand=True, fill='both')
+        
+        # Title
+        tk.Label(center_frame, text="PAYMODES", 
+                font=('Arial', S(48), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(pady=(0, S(20)))
+        
+        # Selected mode and game mode display
+        selection_frame = tk.Frame(center_frame, bg='#4a6fa5', bd=S(3), relief='raised')
+        selection_frame.pack(pady=S(20), padx=S(100))
+        
+        tk.Label(selection_frame, 
+                text=f"{self.main_app.selected_main_option} → {self.main_app.selected_game_mode}", 
+                font=('Arial', S(20), 'bold'), 
+                fg='white', bg='#4a6fa5', pady=S(20)).pack()
+        
+        # Payment options - Touch optimized
+        payment_frame = tk.Frame(center_frame, bg='#1e3a5f')
+        payment_frame.pack(pady=S(40))
+        
+        payment_options = [
+            ("ONLINE WALLET/\nSAMBALL.IO", "online_wallet"),
+            ("QR CODE", "qr_code"),
+            ("POS", "pos")
+        ]
+        
+        for i, (option_text, option_id) in enumerate(payment_options):
+            option_frame = tk.Frame(payment_frame, bg='#4a6fa5', bd=S(4), relief='raised')
+            option_frame.grid(row=0, column=i, padx=S(35), pady=S(10))
+            
+            option_btn = tk.Button(option_frame, text=option_text, 
+                                 font=('Arial', S(20), 'bold'), 
+                                 bg='#4a6fa5', fg='white', bd=0, 
+                                 padx=S(50), pady=S(40),
+                                 command=lambda opt=option_id: self.select_payment_mode(opt))
+            option_btn.pack(padx=S(30), pady=S(30))
+        
+        # Configure grid
+        payment_frame.grid_columnconfigure(0, weight=1)
+        payment_frame.grid_columnconfigure(1, weight=1)
+        payment_frame.grid_columnconfigure(2, weight=1)
+        
+    def select_payment_mode(self, mode):
+        print(f"Selected payment mode: {mode}")
+        if mode == "qr_code":
+            self.main_app.show_qr_code()
+        elif mode == "pos":
+            self.main_app.start_tablesoccer()
+        else:
+            # For online wallet, show a placeholder
+            self.show_payment_processing(mode)
+            
+    def show_payment_processing(self, mode):
+        """Show payment processing window - Touch optimized"""
+        process_window = tk.Toplevel(self.main_app.root)
+        process_window.title("Payment Processing")
+        
+        window_width = S(600)
+        window_height = S(400)
+        process_window.geometry(f"{window_width}x{window_height}")
+        process_window.configure(bg='#1e3a5f')
+        
+        # Center the window
+        x = (SCREEN_WIDTH - window_width) // 2
+        y = (SCREEN_HEIGHT - window_height) // 2
+        process_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        
+        frame = tk.Frame(process_window, bg='#1e3a5f', padx=S(40), pady=S(40))
+        frame.pack(fill='both', expand=True)
+        
+        tk.Label(frame, text=f"Processing {mode.replace('_', ' ').title()} Payment", 
+                font=('Arial', S(22), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(pady=(0, S(30)))
+        
+        tk.Label(frame, text="✓ Payment successful!", 
+                font=('Arial', S(20)), 
+                fg='#90EE90', bg='#1e3a5f').pack(pady=S(20))
+        
+        tk.Label(frame, text="Starting game...", 
+                font=('Arial', S(18)), 
+                fg='white', bg='#1e3a5f').pack(pady=S(15))
+        
+        tk.Button(frame, text="Continue to Game", 
+                 font=('Arial', S(18)), 
+                 bg='#4a6fa5', fg='white', bd=0, 
+                 padx=S(40), pady=S(20),
+                 command=lambda: [process_window.destroy(), self.main_app.start_tablesoccer()]).pack(pady=S(30))
+
+# Simple QR Code Window - Just image and back button
+class QRCodeWindow:
+    def __init__(self, main_app, parent_frame):
+        self.main_app = main_app
+        self.parent_frame = parent_frame
+        self.setup_ui()
+        
+    def setup_ui(self):
+        main_frame = tk.Frame(self.parent_frame, bg='#1e3a5f')
+        main_frame.pack(fill='both', expand=True)
+        
+        # Header section
+        header_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        header_frame.pack(fill='x', pady=(S(50), S(30)))
+        
+        # Back button - Touch optimized
+        back_btn = tk.Button(header_frame, text="← Back", 
+                           font=('Arial', S(24), 'bold'), 
+                           bg='#4a6fa5', fg='white', bd=0, 
+                           padx=S(50), pady=S(25),
+                           command=lambda: self.main_app.show_paymodes(self.main_app.selected_game_mode))
+        back_btn.pack(side='left', padx=(S(80), 0))
+        
+        # Center content
+        center_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        center_frame.pack(expand=True, fill='both')
+        
+        # Title
+        tk.Label(center_frame, text="SCAN QR CODE", 
+                font=('Arial', S(56), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(pady=(S(50), S(80)))
+        
+        # QR Code container with white background
+        qr_container = tk.Frame(center_frame, bg='white', bd=S(10), relief='raised')
+        qr_container.pack(pady=S(50))
+        
+        # Create simple 3x3 QR code pattern
+        qr_frame = tk.Frame(qr_container, bg='white')
+        qr_frame.pack(padx=S(60), pady=S(60))
+        
+        # 3x3 grid of squares - you can replace this with your own QR image
+        qr_pattern = [
+            [1, 0, 1],  # 1 = black, 0 = white
+            [0, 1, 0],
+            [1, 0, 1]
+        ]
+        
+        square_size = S(120)  # Large squares for touch screens
+        
+        for row in range(3):
+            row_frame = tk.Frame(qr_frame, bg='white')
+            row_frame.pack()
+            for col in range(3):
+                color = 'black' if qr_pattern[row][col] else 'white'
+                square = tk.Frame(row_frame, bg=color, width=square_size, height=square_size, 
+                                bd=S(2), relief='solid')
+                square.pack(side='left')
+                square.pack_propagate(False)  # Maintain size
+        
+        # Instructions
+        tk.Label(center_frame, text="Use your payment app to scan this code", 
+                font=('Arial', S(24)), 
+                fg='#cccccc', bg='#1e3a5f').pack(pady=(S(80), S(40)))
+        
+        # Payment amount
+        amount_frame = tk.Frame(center_frame, bg='#4a6fa5', bd=S(4), relief='raised')
+        amount_frame.pack(pady=S(40))
+        
+        tk.Label(amount_frame, text="Amount: $9.99", 
+                font=('Arial', S(32), 'bold'), 
+                fg='white', bg='#4a6fa5', 
+                padx=S(60), pady=S(30)).pack()
+
+# Tablesoccer Scoreboard - Touch Support Added (keeping the same as before)
+class TableSoccerScoreboard:
+    def __init__(self, main_app, parent_frame):
+        self.main_app = main_app
+        self.parent_frame = parent_frame
+        
+        # Game state variables
+        self.home_score = tk.IntVar(value=0)
+        self.away_score = tk.IntVar(value=0)
+        self.home_sets = tk.IntVar(value=0)
+        self.away_sets = tk.IntVar(value=0)
+        self.home_timeouts = tk.IntVar(value=2)
+        self.away_timeouts = tk.IntVar(value=2)
+        self.current_set = tk.IntVar(value=1)
+        self.serve_side = tk.StringVar(value="HOME")
+        
+        # Timer variables
+        self.game_minutes = tk.IntVar(value=15)
+        self.game_seconds = tk.IntVar(value=0)
+        self.timer_running = False
+        self.timer_thread = None
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        main_frame = tk.Frame(self.parent_frame, bg='#1e3a5f')
+        main_frame.pack(fill='both', expand=True)
+        
+        # Header - Touch optimized
+        header_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        header_frame.pack(fill='x', pady=(S(30), S(30)))
+        
+        # Back button - Touch optimized
+        back_btn = tk.Button(header_frame, text="← Back to Main Menu", 
+                           font=('Arial', S(20), 'bold'), 
+                           bg='#4a6fa5', fg='white', bd=0, 
+                           padx=S(40), pady=S(20),
+                           command=self.back_to_main_menu)
+        back_btn.pack(side='left', padx=(S(50), 0))
+        
+        # Touch instruction
+        tk.Label(header_frame, text="Touch controls to play", 
+                font=('Arial', S(16)), 
+                fg='#cccccc', bg='#1e3a5f').pack(side='right', padx=(0, S(50)))
+        
+        # Team names
+        tk.Label(header_frame, text="BULLDOGS", 
+                font=('Arial', S(32), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(side='left', padx=(S(60), 0))
+        
+        tk.Label(header_frame, text="FALCONS", 
+                font=('Arial', S(32), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(side='right', padx=(0, S(60)))
+        
+        # Refresh button - Touch optimized
+        refresh_btn = tk.Button(header_frame, text="↻", 
+                              font=('Arial', S(24), 'bold'), 
+                              bg='#4a6fa5', fg='white', bd=0, 
+                              padx=S(20), pady=S(15),
+                              command=self.reset_game)
+        refresh_btn.pack(side='right', padx=(0, S(30)))
+        
+        # Main scoreboard section
+        self.create_tablesoccer_section(main_frame)
+        self.create_control_section(main_frame)
+        self.create_sets_timeouts_section(main_frame)
+        self.create_game_clock_section(main_frame)
+        
+    def create_tablesoccer_section(self, parent):
+        tablesoccer_frame = tk.Frame(parent, bg='#4a6fa5', relief='raised', bd=S(4))
+        tablesoccer_frame.pack(fill='x', pady=(0, S(40)), padx=S(50))
+        
+        tablesoccer_frame.grid_columnconfigure(0, weight=1)
+        tablesoccer_frame.grid_columnconfigure(1, weight=1)
+        tablesoccer_frame.grid_columnconfigure(2, weight=1)
+        
+        # Home team score
+        home_frame = tk.Frame(tablesoccer_frame, bg='#4a6fa5')
+        home_frame.grid(row=0, column=0, padx=S(40), pady=S(40), sticky='ew')
+        
+        tk.Label(home_frame, textvariable=self.home_score, 
+                font=('Arial', S(140), 'bold'), 
+                fg='white', bg='#4a6fa5').pack()
+        tk.Label(home_frame, text="HOME TEAM", 
+                font=('Arial', S(24)), 
+                fg='#cccccc', bg='#4a6fa5').pack()
+        
+        # Center section
+        center_frame = tk.Frame(tablesoccer_frame, bg='#4a6fa5')
+        center_frame.grid(row=0, column=1, padx=S(40), pady=S(40))
+        
+        # Table soccer field
+        canvas_size = S(220)
+        tablesoccer_canvas = tk.Canvas(center_frame, width=canvas_size, height=canvas_size, 
+                                    bg='#4a6fa5', highlightthickness=0)
+        tablesoccer_canvas.pack()
+        
+        # Draw field
+        tablesoccer_canvas.create_rectangle(S(30), S(50), S(190), S(170), 
+                                          fill='#228B22', outline='white', width=S(6))
+        tablesoccer_canvas.create_line(S(110), S(50), S(110), S(170), 
+                                     fill='white', width=S(5))
+        tablesoccer_canvas.create_rectangle(S(20), S(90), S(30), S(130), 
+                                          fill='white', outline='white')
+        tablesoccer_canvas.create_rectangle(S(190), S(90), S(200), S(130), 
+                                          fill='white', outline='white')
+        tablesoccer_canvas.create_oval(S(95), S(95), S(125), S(125), 
+                                     fill='white', outline='black', width=3)
+        
+        tk.Label(center_frame, text="TABLESOCCER", 
+                font=('Arial', S(18), 'bold'), 
+                fg='white', bg='#4a6fa5').pack(pady=(S(15), 0))
+        tk.Label(center_frame, text="V/S", 
+                font=('Arial', S(28), 'bold'), 
+                fg='white', bg='#4a6fa5').pack()
+        
+        # Possession indicator - Touch optimized
+        serve_frame = tk.Frame(center_frame, bg='#4a6fa5')
+        serve_frame.pack(pady=(S(20), 0))
+        
+        tk.Button(serve_frame, text="◀", 
+                 font=('Arial', S(24)), bg='#666666', fg='white', 
+                 bd=0, padx=S(20), pady=S(12),
+                 command=lambda: self.change_serve('HOME')).pack(side='left')
+        tk.Label(serve_frame, text="POSSESSION", 
+                font=('Arial', S(16), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(25)).pack(side='left')
+        tk.Button(serve_frame, text="▶", 
+                 font=('Arial', S(24)), bg='#666666', fg='white', 
+                 bd=0, padx=S(20), pady=S(12),
+                 command=lambda: self.change_serve('AWAY')).pack(side='left')
+        
+        # Away team score
+        away_frame = tk.Frame(tablesoccer_frame, bg='#4a6fa5')
+        away_frame.grid(row=0, column=2, padx=S(40), pady=S(40), sticky='ew')
+        
+        tk.Label(away_frame, textvariable=self.away_score, 
+                font=('Arial', S(140), 'bold'), 
+                fg='white', bg='#4a6fa5').pack()
+        tk.Label(away_frame, text="AWAY TEAM", 
+                font=('Arial', S(24)), 
+                fg='#cccccc', bg='#4a6fa5').pack()
+        
+    def create_control_section(self, parent):
+        control_frame = tk.Frame(parent, bg='#1e3a5f')
+        control_frame.pack(fill='x', pady=(0, S(40)), padx=S(50))
+        
+        # Home controls - Touch optimized
+        left_frame = tk.Frame(control_frame, bg='#1e3a5f')
+        left_frame.pack(side='left', padx=(0, S(40)))
+        
+        tk.Label(left_frame, text="GOALS", 
+                font=('Arial', S(20)), 
+                fg='#cccccc', bg='#1e3a5f').pack()
+        
+        home_points_frame = tk.Frame(left_frame, bg='#1e3a5f')
+        home_points_frame.pack(pady=S(15))
+        
+        tk.Button(home_points_frame, text="+1", 
+                 font=('Arial', S(32), 'bold'), 
+                 bg='#4a6fa5', fg='white', bd=0, 
+                 padx=S(40), pady=S(20),
+                 command=lambda: self.change_score('HOME', 1)).pack(side='left', padx=(0, S(15)))
+        tk.Button(home_points_frame, text="-1", 
+                 font=('Arial', S(32), 'bold'), 
+                 bg='#8b4a6b', fg='white', bd=0, 
+                 padx=S(40), pady=S(20),
+                 command=lambda: self.change_score('HOME', -1)).pack(side='left')
+        
+        # Center - Set indicator - Touch optimized
+        center_frame = tk.Frame(control_frame, bg='#1e3a5f')
+        center_frame.pack(side='left', expand=True)
+        
+        set_frame = tk.Frame(center_frame, bg='#4a6fa5', relief='raised', bd=S(4))
+        set_frame.pack(pady=S(20))
+        
+        set_control_frame = tk.Frame(set_frame, bg='#4a6fa5')
+        set_control_frame.pack(padx=S(40), pady=S(25))
+        
+        tk.Button(set_control_frame, text="◀", 
+                 font=('Arial', S(24)), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(20), pady=S(12), command=self.prev_set).pack(side='left')
+        self.set_label = tk.Label(set_control_frame, text="1st Game", 
+                                 font=('Arial', S(28), 'bold'), 
+                                 fg='white', bg='#4a6fa5', padx=S(40))
+        self.set_label.pack(side='left')
+        tk.Button(set_control_frame, text="▶", 
+                 font=('Arial', S(24)), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(20), pady=S(12), command=self.next_set).pack(side='left')
+        
+        # Away controls - Touch optimized
+        right_frame = tk.Frame(control_frame, bg='#1e3a5f')
+        right_frame.pack(side='right', padx=(S(40), 0))
+        
+        tk.Label(right_frame, text="GOALS", 
+                font=('Arial', S(20)), 
+                fg='#cccccc', bg='#1e3a5f').pack()
+        
+        away_points_frame = tk.Frame(right_frame, bg='#1e3a5f')
+        away_points_frame.pack(pady=S(15))
+        
+        tk.Button(away_points_frame, text="-1", 
+                 font=('Arial', S(32), 'bold'), 
+                 bg='#8b4a6b', fg='white', bd=0, 
+                 padx=S(40), pady=S(20),
+                 command=lambda: self.change_score('AWAY', -1)).pack(side='left', padx=(0, S(15)))
+        tk.Button(away_points_frame, text="+1", 
+                 font=('Arial', S(32), 'bold'), 
+                 bg='#4a6fa5', fg='white', bd=0, 
+                 padx=S(40), pady=S(20),
+                 command=lambda: self.change_score('AWAY', 1)).pack(side='left')
+        
+    def create_sets_timeouts_section(self, parent):
+        stats_frame = tk.Frame(parent, bg='#1e3a5f')
+        stats_frame.pack(fill='x', pady=(0, S(40)), padx=S(50))
+        
+        # Home stats - Touch optimized
+        home_stats = tk.Frame(stats_frame, bg='#1e3a5f')
+        home_stats.pack(side='left')
+        
+        # Games won
+        tk.Label(home_stats, text="GAMES WON", 
+                font=('Arial', S(18)), 
+                fg='#cccccc', bg='#1e3a5f').pack()
+        home_sets_frame = tk.Frame(home_stats, bg='#4a6fa5', relief='raised', bd=S(4))
+        home_sets_frame.pack(pady=S(15), padx=(0, S(25)))
+        
+        home_sets_control = tk.Frame(home_sets_frame, bg='#4a6fa5')
+        home_sets_control.pack(padx=S(25), pady=S(20))
+        
+        tk.Button(home_sets_control, text="−", 
+                 font=('Arial', S(24), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(15), pady=S(12), command=lambda: self.change_sets('HOME', -1)).pack(side='left')
+        tk.Label(home_sets_control, textvariable=self.home_sets, 
+                font=('Arial', S(42), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(30)).pack(side='left')
+        tk.Button(home_sets_control, text="+", 
+                 font=('Arial', S(24), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(15), pady=S(12), command=lambda: self.change_sets('HOME', 1)).pack(side='left')
+        
+        # Time outs
+        tk.Label(home_stats, text="TIME OUTS", 
+                font=('Arial', S(18)), 
+                fg='#cccccc', bg='#1e3a5f').pack(pady=(S(25), 0))
+        home_timeouts_frame = tk.Frame(home_stats, bg='#4a6fa5', relief='raised', bd=S(4))
+        home_timeouts_frame.pack(pady=S(15))
+        
+        home_timeouts_control = tk.Frame(home_timeouts_frame, bg='#4a6fa5')
+        home_timeouts_control.pack(padx=S(25), pady=S(20))
+        
+        tk.Button(home_timeouts_control, text="−", 
+                 font=('Arial', S(24), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(15), pady=S(12), command=lambda: self.change_timeouts('HOME', -1)).pack(side='left')
+        tk.Label(home_timeouts_control, textvariable=self.home_timeouts, 
+                font=('Arial', S(42), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(30)).pack(side='left')
+        tk.Button(home_timeouts_control, text="+", 
+                 font=('Arial', S(24), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(15), pady=S(12), command=lambda: self.change_timeouts('HOME', 1)).pack(side='left')
+        
+        # Center whistle button - Touch optimized
+        center_stats = tk.Frame(stats_frame, bg='#1e3a5f')
+        center_stats.pack(side='left', expand=True)
+        
+        whistle_btn = tk.Button(center_stats, text="🔔\nWHISTLE", 
+                              font=('Arial', S(20), 'bold'), 
+                              bg='white', fg='#4a6fa5', bd=S(4), 
+                              padx=S(30), pady=S(25),
+                              command=self.sound_whistle)
+        whistle_btn.pack()
+        
+        # Away stats - Touch optimized
+        away_stats = tk.Frame(stats_frame, bg='#1e3a5f')
+        away_stats.pack(side='right')
+        
+        # Time outs
+        tk.Label(away_stats, text="TIME OUTS", 
+                font=('Arial', S(18)), 
+                fg='#cccccc', bg='#1e3a5f').pack()
+        away_timeouts_frame = tk.Frame(away_stats, bg='#4a6fa5', relief='raised', bd=S(4))
+        away_timeouts_frame.pack(pady=S(15), padx=(S(25), 0))
+        
+        away_timeouts_control = tk.Frame(away_timeouts_frame, bg='#4a6fa5')
+        away_timeouts_control.pack(padx=S(25), pady=S(20))
+        
+        tk.Button(away_timeouts_control, text="−", 
+                 font=('Arial', S(24), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(15), pady=S(12), command=lambda: self.change_timeouts('AWAY', -1)).pack(side='left')
+        tk.Label(away_timeouts_control, textvariable=self.away_timeouts, 
+                font=('Arial', S(42), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(30)).pack(side='left')
+        tk.Button(away_timeouts_control, text="+", 
+                 font=('Arial', S(24), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(15), pady=S(12), command=lambda: self.change_timeouts('AWAY', 1)).pack(side='left')
+        
+        # Games won
+        tk.Label(away_stats, text="GAMES WON", 
+                font=('Arial', S(18)), 
+                fg='#cccccc', bg='#1e3a5f').pack(pady=(S(25), 0))
+        away_sets_frame = tk.Frame(away_stats, bg='#4a6fa5', relief='raised', bd=S(4))
+        away_sets_frame.pack(pady=S(15))
+        
+        away_sets_control = tk.Frame(away_sets_frame, bg='#4a6fa5')
+        away_sets_control.pack(padx=S(25), pady=S(20))
+        
+        tk.Button(away_sets_control, text="−", 
+                 font=('Arial', S(24), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(15), pady=S(12), command=lambda: self.change_sets('AWAY', -1)).pack(side='left')
+        tk.Label(away_sets_control, textvariable=self.away_sets, 
+                font=('Arial', S(42), 'bold'), 
+                fg='white', bg='#4a6fa5', padx=S(30)).pack(side='left')
+        tk.Button(away_sets_control, text="+", 
+                 font=('Arial', S(24), 'bold'), bg='white', fg='#4a6fa5', 
+                 bd=0, padx=S(15), pady=S(12), command=lambda: self.change_sets('AWAY', 1)).pack(side='left')
+        
+    def create_game_clock_section(self, parent):
+        clock_frame = tk.Frame(parent, bg='#4a6fa5', relief='raised', bd=S(4))
+        clock_frame.pack(fill='x', pady=S(25), padx=S(50))
+        
+        clock_container = tk.Frame(clock_frame, bg='#4a6fa5')
+        clock_container.pack(pady=S(35))
+        
+        # Play button - Touch optimized
+        play_btn = tk.Button(clock_container, text="▶\nPLAY", 
+                           font=('Arial', S(18), 'bold'), 
+                           bg='white', fg='#4a6fa5', bd=S(4), 
+                           padx=S(25), pady=S(20),
+                           command=self.toggle_timer)
+        play_btn.pack(side='left', padx=(0, S(40)))
+        
+        # Game clock label
+        tk.Label(clock_container, text="GAME CLOCK", 
+                font=('Arial', S(24), 'bold'), 
+                fg='white', bg='#4a6fa5').pack(side='left', padx=(0, S(40)))
+        
+        # Time display
+        time_frame = tk.Frame(clock_container, bg='#4a6fa5')
+        time_frame.pack(side='left', padx=(0, S(40)))
+        
+        minutes_frame = tk.Frame(time_frame, bg='#666666', relief='raised', bd=S(4))
+        minutes_frame.pack(side='left', padx=(0, S(15)))
+        self.minutes_label = tk.Label(minutes_frame, textvariable=self.game_minutes, 
+                                    font=('Arial', S(48), 'bold'), fg='white', bg='#666666', 
+                                    padx=S(30), pady=S(20))
+        self.minutes_label.pack()
+        
+        tk.Label(time_frame, text=":", 
+                font=('Arial', S(48), 'bold'), 
+                fg='white', bg='#4a6fa5').pack(side='left')
+        
+        seconds_frame = tk.Frame(time_frame, bg='#666666', relief='raised', bd=S(4))
+        seconds_frame.pack(side='left', padx=(S(15), 0))
+        self.seconds_label = tk.Label(seconds_frame, text="00", 
+                                    font=('Arial', S(48), 'bold'), fg='white', bg='#666666', 
+                                    padx=S(30), pady=S(20))
+        self.seconds_label.pack()
+        
+        # Reset button - Touch optimized
+        reset_btn = tk.Button(clock_container, text="↻\nRESET", 
+                            font=('Arial', S(18), 'bold'), 
+                            bg='white', fg='#4a6fa5', bd=S(4), 
+                            padx=S(25), pady=S(20),
+                            command=self.reset_timer_click)
+        reset_btn.pack(side='left', padx=(S(40), S(40)))
+        
+        # Timer preset buttons - Touch optimized
+        preset_frame = tk.Frame(clock_container, bg='#4a6fa5')
+        preset_frame.pack(side='left')
+        
+        btn1 = tk.Button(preset_frame, text="1\nmin", 
+                        font=('Arial', S(18), 'bold'), 
+                        bg='#666666', fg='white', bd=S(4), 
+                        padx=S(20), pady=S(15),
+                        command=lambda: self.set_timer(1, 0))
+        btn1.pack(side='left', padx=(0, S(15)))
+        
+        btn15 = tk.Button(preset_frame, text="15\nmin", 
+                         font=('Arial', S(18), 'bold'), 
+                         bg='#666666', fg='white', bd=S(4), 
+                         padx=S(15), pady=S(15),
+                         command=lambda: self.set_timer(15, 0))
+        btn15.pack(side='left')
+        
+    # Game logic methods
+    def change_score(self, team, delta):
+        if team == 'HOME':
+            new_score = max(0, self.home_score.get() + delta)
+            self.home_score.set(new_score)
+        else:
+            new_score = max(0, self.away_score.get() + delta)
+            self.away_score.set(new_score)
+            
+    def change_sets(self, team, delta):
+        if team == 'HOME':
+            new_sets = max(0, self.home_sets.get() + delta)
+            self.home_sets.set(new_sets)
+        else:
+            new_sets = max(0, self.away_sets.get() + delta)
+            self.away_sets.set(new_sets)
+            
+    def change_timeouts(self, team, delta):
+        if team == 'HOME':
+            new_timeouts = max(0, min(3, self.home_timeouts.get() + delta))
+            self.home_timeouts.set(new_timeouts)
+        else:
+            new_timeouts = max(0, min(3, self.away_timeouts.get() + delta))
+            self.away_timeouts.set(new_timeouts)
+            
+    def change_serve(self, team):
+        self.serve_side.set(team)
+        print(f"Ball possession changed to {team}")
+        
+    def next_set(self):
+        current = self.current_set.get()
+        if current < 5:
+            self.current_set.set(current + 1)
+            self.update_set_label()
+            
+    def prev_set(self):
+        current = self.current_set.get()
+        if current > 1:
+            self.current_set.set(current - 1)
+            self.update_set_label()
+            
+    def update_set_label(self):
+        set_num = self.current_set.get()
+        ordinals = ["", "1st", "2nd", "3rd", "4th", "5th"]
+        self.set_label.config(text=f"{ordinals[set_num]} Game")
+        
+    def sound_whistle(self):
+        print("Whistle blown!")
+        
+    def toggle_timer(self):
+        if self.timer_running:
+            self.stop_timer()
+        else:
+            self.start_timer()
+            
+    def start_timer(self):
+        if not self.timer_running:
+            self.timer_running = True
+            self.timer_thread = threading.Thread(target=self.run_timer)
+            self.timer_thread.daemon = True
+            self.timer_thread.start()
+            
+    def stop_timer(self):
+        self.timer_running = False
+        
+    def run_timer(self):
+        while self.timer_running:
+            time.sleep(1)
+            if self.timer_running:
+                current_seconds = self.game_seconds.get()
+                current_minutes = self.game_minutes.get()
+                
+                if current_seconds > 0:
+                    self.game_seconds.set(current_seconds - 1)
+                elif current_minutes > 0:
+                    self.game_minutes.set(current_minutes - 1)
+                    self.game_seconds.set(59)
+                else:
+                    self.timer_running = False
+                    
+                if self.main_app.root:
+                    self.main_app.root.after(0, self.update_seconds_display)
+                
+    def update_seconds_display(self):
+        seconds = self.game_seconds.get()
+        self.seconds_label.config(text=f"{seconds:02d}")
+        
+    def reset_timer_click(self):
+        self.stop_timer()
+        self.set_timer(15, 0)
+        
+    def set_timer(self, minutes, seconds):
+        self.stop_timer()
+        self.game_minutes.set(minutes)
+        self.game_seconds.set(seconds)
+        self.update_seconds_display()
+        
+    def reset_game(self):
+        self.stop_timer()
+        self.home_score.set(0)
+        self.away_score.set(0)
+        self.home_sets.set(0)
+        self.away_sets.set(0)
+        self.home_timeouts.set(2)
+        self.away_timeouts.set(2)
+        self.current_set.set(1)
+        self.update_set_label()
+        self.set_timer(15, 0)
+        
+    def back_to_main_menu(self):
+        print("Back button clicked - returning to main menu...")
+        self.main_app.back_to_main_menu()
+
+# Main Application Entry Point
+if __name__ == "__main__":
+    print("=== MULTI-LEVEL GAME APPLICATION WITH ON-SCREEN KEYBOARD ===")
+    print("Following the 4-level navigation structure:")
+    print("1. MAIN MENU (RANKED/TRAINING)")
+    print("2. LOGIN (Username/Password) - WITH ON-SCREEN KEYBOARD - FIXED LAYOUT")
+    print("3. GAME MODES (Classic/Best of 2-5/Time Trial/Speed Trial)")
+    print("4. PAYMODES (Online Wallet/QR Code/POS)")
+    print("Navigate through each level to reach the final game!")
+    print("TOUCH OPTIMIZED - All buttons are larger for touch screens")
+    print("ON-SCREEN KEYBOARD - Touch ⌨ button next to input fields")
+    print("QR Code section shows simple 3x3 pattern with white background")
+    print("All interfaces scale to your screen resolution!")
+    print("LOGIN BUTTON NOW VISIBLE - Reduced padding and font sizes in login screen")
+    print("=====================================")
+    
+    app = MultiLevelGameApplication()
+    app.start_main_menu()
