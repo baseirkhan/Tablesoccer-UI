@@ -679,6 +679,13 @@ class MainMenuUI:
                             return
                 elif event.type in [pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN]:
                     if not self.handle_input(event):
+                        pygame.quit()
+                        sys.exit()
+                    else:
+                        if not self.handle_input(event):
+                            return
+                elif event.type in [pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN]:
+                    if not self.handle_input(event):
                         return
             
             # Draw everything
@@ -1144,127 +1151,58 @@ class QRCodeWindow:
         brand_label.pack(pady=(S(10), 0))
         
         # QR Code container with modern card design
-        qr_card = tk.Frame(content_wrapper, bg='white', bd=0, relief='flat')
-        qr_card.pack(pady=S(20))
-        
-        # Add subtle shadow effect with multiple frames
-        shadow_frame3 = tk.Frame(qr_card, bg='#e9ecef', height=S(4))
-        shadow_frame3.pack(fill='x', pady=(S(280), 0))
-        
-        shadow_frame2 = tk.Frame(qr_card, bg='#dee2e6', height=S(3))
-        shadow_frame2.pack(fill='x')
-        
-        shadow_frame1 = tk.Frame(qr_card, bg='#ced4da', height=S(2))
-        shadow_frame1.pack(fill='x')
-        
-        # Main QR container
-        qr_container = tk.Frame(qr_card, bg='white', bd=S(1), relief='solid')
-        qr_container.pack(padx=S(20), pady=(0, S(20)))
-        
-        # QR Code Image - Load actual QR code image with proper sizing
-        qr_frame = tk.Frame(qr_container, bg='white')
-        qr_frame.pack(padx=S(40), pady=S(40))
+        # QR Code - Simple and clean display
+        qr_frame = tk.Frame(content_wrapper, bg='white')
+        qr_frame.pack(pady=S(30))
 
+        # Load and display your QR code image directly
         try:
-            # Try to load your actual QR code image
             from PIL import Image, ImageTk
             
-            try:
-                # Load your actual QR code image with better sizing
-                qr_image = Image.open(r"E:\new ui\URL QR Code.png")
-                
-                # Get original image size
-                original_width, original_height = qr_image.size
-                print(f"Original QR code size: {original_width}x{original_height}")
-                
-                # Calculate proper size (make it larger and maintain aspect ratio)
-                target_size = S(300)  # Increased from S(250)
-                
-                # Maintain aspect ratio
-                if original_width > original_height:
-                    new_width = target_size
-                    new_height = int((original_height * target_size) / original_width)
-                else:
-                    new_height = target_size
-                    new_width = int((original_width * target_size) / original_height)
-                
-                print(f"Resizing QR code to: {new_width}x{new_height}")
-                
-                # Resize with high quality
-                qr_image = qr_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                qr_photo = ImageTk.PhotoImage(qr_image)
-                
-                # Create a frame with samball.io branding colors
-                qr_border_frame = tk.Frame(qr_frame, bg=SAMBALL_BLUE, bd=S(3), relief='solid')
-                qr_border_frame.pack(padx=S(10), pady=S(10))
-                
-                # Display the QR code with proper sizing
-                qr_label = tk.Label(qr_border_frame, image=qr_photo, bg='white', bd=S(2), relief='solid')
-                qr_label.image = qr_photo  # Keep a reference
-                qr_label.pack(padx=S(8), pady=S(8))
-                
-                # Add samball.io branding below QR code
-                brand_frame = tk.Frame(qr_frame, bg='white')
-                brand_frame.pack(pady=(S(15), 0))
-                
-                tk.Label(brand_frame, text="Powered by", 
-                        font=('Arial', S(12)), 
-                        fg='#666666', bg='white').pack()
-                
-                tk.Label(brand_frame, text="SAMBALL.IO", 
-                        font=('Arial', S(16), 'bold'), 
-                        fg=SAMBALL_BLUE, bg='white').pack()
-                
-            except FileNotFoundError:
-                print("QR code image file not found, using fallback")
-                # Fallback with better styling
-                fallback_frame = tk.Frame(qr_frame, bg=SAMBALL_BLUE, bd=S(3), relief='solid')
-                fallback_frame.pack(padx=S(10), pady=S(10))
-                
-                tk.Label(fallback_frame, text="QR CODE\nIMAGE", 
-                        font=('Arial', S(24), 'bold'), 
-                        fg='white', bg=SAMBALL_BLUE,
-                        justify='center', padx=S(60), pady=S(60)).pack()
-        
-    
-        except ImportError:
-            # Fallback: Create QR code using Canvas if PIL is not available
-            print("PIL not available, using Canvas fallback for QR code")
-            canvas_size = S(200)
-            qr_canvas = tk.Canvas(qr_frame, width=canvas_size, height=canvas_size, 
-                                bg='white', highlightthickness=0)
-            qr_canvas.pack()
+            # Put your QR code image path here
+            qr_image_path = "QRCode.png"  # Change this to your image path
             
-            # Create a more detailed QR code pattern using Canvas
-            block_size = canvas_size // 25
+            print(f"Loading QR code from: {qr_image_path}")
+            qr_image = Image.open(qr_image_path)
             
-            # Generate QR-like pattern
-            import random
-            for i in range(25):
-                for j in range(25):
-                    x1, y1 = i * block_size, j * block_size
-                    x2, y2 = x1 + block_size, y1 + block_size
-                    
-                    # Create corner finder patterns
-                    if ((i < 7 and j < 7) or (i < 7 and j > 17) or (i > 17 and j < 7)):
-                        if ((i == 0 or i == 6 or j == 0 or j == 6) or 
-                            (2 <= i <= 4 and 2 <= j <= 4)):
-                            color = 'black'
-                        else:
-                            color = 'white'
-                    else:
-                        color = 'black' if random.random() > 0.5 else 'white'
-                    
-                    qr_canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline='')
-    
+            # Make it larger - no containers to constrain it
+            qr_size = S(400)  # Much larger size
+            qr_image_resized = qr_image.resize((qr_size, qr_size), Image.Resampling.LANCZOS)
+            qr_photo = ImageTk.PhotoImage(qr_image_resized)
+            
+            # Display the QR code directly - no borders or containers
+            qr_label = tk.Label(qr_frame, image=qr_photo, bg='white')
+            qr_label.image = qr_photo  # Keep reference to prevent garbage collection
+            qr_label.pack()
+            
+            print("QR code image loaded successfully!")
+            
         except Exception as e:
-            print(f"Error creating QR code: {e}")
-            # Simple fallback text
-            tk.Label(qr_frame, text="QR CODE\nIMAGE", 
-                    font=('Arial', S(24), 'bold'), 
-                    fg='black', bg='white',
-                    justify='center').pack(pady=S(80))
+            print(f"Could not load QR code image: {e}")
+            
+            # Simple fallback if image doesn't load
+            fallback_label = tk.Label(qr_frame, 
+                             text="QR CODE\nIMAGE\nHERE", 
+                             font=('Arial', S(32), 'bold'),
+                             fg='black', bg='white',
+                             width=20, height=10,
+                             justify='center')
+            fallback_label.pack()
+            
+            print("Using text fallback - please check your image path")
 
+        # Add branding below QR code
+        brand_frame = tk.Frame(qr_frame, bg='white')
+        brand_frame.pack(pady=(S(20), 0))
+
+        tk.Label(brand_frame, text="Powered by", 
+                font=('Arial', S(12)), 
+                fg='#666666', bg='white').pack()
+
+        tk.Label(brand_frame, text="SAMBALL.IO", 
+                font=('Arial', S(16), 'bold'), 
+                fg=SAMBALL_BLUE, bg='white').pack()
+    
         # Payment amount with samball.io branding
         amount_section = tk.Frame(content_wrapper, bg='white')
         amount_section.pack(pady=(S(40), S(20)))
