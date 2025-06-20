@@ -7,6 +7,24 @@ import sys
 import random
 from typing import List, Tuple
 
+# Add this import after the existing imports at the top
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("PIL/Pillow not available. QR code will use Canvas fallback.")
+
+# Updated color scheme for samball.io branding
+SAMBALL_BLUE = '#1a73e8'
+SAMBALL_DARK_BLUE = '#1557b0'
+SAMBALL_LIGHT_BLUE = '#4285f4'
+SAMBALL_GREEN = '#34a853'
+SAMBALL_ORANGE = '#ff6d01'
+SAMBALL_RED = '#ea4335'
+SAMBALL_GRAY = '#5f6368'
+SAMBALL_LIGHT_GRAY = '#f8f9fa'
+
 # Initialize pygame and get screen info for scaling
 pygame.init()
 info = pygame.display.Info()
@@ -35,6 +53,7 @@ class OnScreenKeyboard:
         self.is_password = is_password
         self.keyboard_window = None
         self.shift_pressed = False
+        self.display_label = None  # For showing what's being typed
         
     def show_keyboard(self):
         if self.keyboard_window:
@@ -46,7 +65,7 @@ class OnScreenKeyboard:
         
         # Position at bottom of screen
         kb_width = S(1000)
-        kb_height = S(400)
+        kb_height = S(450)  # Increased height for display bar
         x = (SCREEN_WIDTH - kb_width) // 2
         y = SCREEN_HEIGHT - kb_height - S(50)
         self.keyboard_window.geometry(f"{kb_width}x{kb_height}+{x}+{y}")
@@ -54,12 +73,32 @@ class OnScreenKeyboard:
         # Make it stay on top
         self.keyboard_window.attributes('-topmost', True)
         
-        # Create keyboard layout
+        # Create keyboard layout with display bar
         self.create_keyboard_layout()
         
     def create_keyboard_layout(self):
         main_frame = tk.Frame(self.keyboard_window, bg='#2a4a6b')
         main_frame.pack(fill='both', expand=True, padx=S(20), pady=S(20))
+        
+        # Display bar at the top showing what's being typed
+        display_frame = tk.Frame(main_frame, bg='#1a3a5b', bd=S(3), relief='sunken')
+        display_frame.pack(fill='x', pady=(0, S(15)))
+        
+        # Label showing field name
+        field_name = "Password" if self.is_password else "Username"
+        tk.Label(display_frame, text=f"{field_name}:", 
+                font=('Arial', S(14), 'bold'), 
+                fg='#cccccc', bg='#1a3a5b').pack(side='left', padx=(S(15), S(10)), pady=S(10))
+        
+        # Display what's being typed
+        self.display_label = tk.Label(display_frame, text="", 
+                                    font=('Arial', S(18), 'bold'), 
+                                    fg='white', bg='#1a3a5b', 
+                                    anchor='w', justify='left')
+        self.display_label.pack(side='left', fill='x', expand=True, padx=(0, S(15)), pady=S(10))
+        
+        # Update display with current content
+        self.update_display()
         
         # Row 1: Numbers
         row1_frame = tk.Frame(main_frame, bg='#2a4a6b')
@@ -148,32 +187,89 @@ class OnScreenKeyboard:
                              command=lambda: self.key_press(' '))
         space_btn.pack(side='left', padx=S(20), fill='x', expand=True)
         
-        # Done button
+        # Clear button
+        clear_btn = tk.Button(row5_frame, text="CLEAR", font=('Arial', S(16), 'bold'),
+                            bg='#d9534f', fg='white', bd=S(2), relief='raised',
+                            padx=S(20), pady=S(10),
+                            command=self.clear_all)
+        clear_btn.pack(side='right', padx=S(5))
+        
+        # Done button - improved functionality
         done_btn = tk.Button(row5_frame, text="DONE", font=('Arial', S(16), 'bold'),
                             bg='#4a6fa5', fg='white', bd=S(2), relief='raised',
                             padx=S(20), pady=S(10),
-                            command=self.hide_keyboard)
+                            command=self.done_clicked)
         done_btn.pack(side='right', padx=S(5))
+        
+    def update_display(self):
+        """Update the display bar with current text"""
+        if self.display_label:
+            current_text = self.target_entry.get()
+            if self.is_password and current_text:
+                # Show asterisks for password
+                display_text = '*' * len(current_text)
+            else:
+                display_text = current_text
+            
+            # Limit display length to prevent overflow
+            if len(display_text) > 40:
+                display_text = display_text[:37] + "..."
+                
+            self.display_label.config(text=display_text)
         
     def key_press(self, key):
         current_text = self.target_entry.get()
         self.target_entry.delete(0, tk.END)
         self.target_entry.insert(0, current_text + key)
+        self.update_display()  # Update display bar
         
     def backspace(self):
         current_text = self.target_entry.get()
         if current_text:
             self.target_entry.delete(0, tk.END)
             self.target_entry.insert(0, current_text[:-1])
+            self.update_display()  # Update display bar
+            
+    def clear_all(self):
+        """Clear all text"""
+        self.target_entry.delete(0, tk.END)
+        self.update_display()  # Update display bar
             
     def toggle_shift(self):
         self.shift_pressed = not self.shift_pressed
         self.create_keyboard_layout()  # Refresh keyboard with new case
         
     def hide_keyboard(self):
-        if self.keyboard_window:
-            self.keyboard_window.destroy()
+        """Hide and destroy the keyboard window"""
+        try:
+            if self.keyboard_window:
+                self.keyboard_window.destroy()
+                self.keyboard_window = None
+                print("Keyboard hidden successfully")  # Debug message
+        except Exception as e:
+            print(f"Error hiding keyboard: {e}")
             self.keyboard_window = None
+
+    def done_clicked(self):
+        """Handle DONE button click"""
+        print("DONE button clicked")  # Debug message
+        try:
+            # Update the target entry one final time
+            self.update_display()
+            # Hide the keyboard
+            self.hide_keyboard()
+            # Remove focus from the entry to prevent auto-reopening
+            if hasattr(self.target_entry, 'master'):
+                self.target_entry.master.focus_set()
+        except Exception as e:
+            print(f"Error in done_clicked: {e}")
+            # Force hide keyboard even if there's an error
+            if self.keyboard_window:
+                try:
+                    self.keyboard_window.destroy()
+                except:
+                    pass
+                self.keyboard_window = None
 
 class MultiLevelGameApplication:
     def __init__(self):
@@ -648,50 +744,57 @@ class LoginScreen:
         form_frame = tk.Frame(center_frame, bg='#4a6fa5', bd=S(3), relief='raised')
         form_frame.pack(pady=S(15), padx=S(120))  # Reduced padding and margins
         
-        # Username section - Compact
+        # Username section - Auto-show keyboard on touch
         username_section = tk.Frame(form_frame, bg='#4a6fa5')
-        username_section.pack(pady=(S(15), S(10)), fill='x')  # Reduced padding
+        username_section.pack(pady=(S(15), S(10)), fill='x')
         
         tk.Label(username_section, text="Username:", 
-                font=('Arial', S(16)),  # Reduced from S(20)
+                font=('Arial', S(16)), 
                 fg='white', bg='#4a6fa5').pack()
         
         username_input_frame = tk.Frame(username_section, bg='#4a6fa5')
-        username_input_frame.pack(pady=S(8), fill='x')  # Reduced padding
+        username_input_frame.pack(pady=S(8), fill='x')
         
-        self.username_entry = tk.Entry(username_input_frame, font=('Arial', S(16)),  # Reduced font
-                                     width=18,  # Reduced width
-                                     justify='center', 
+        self.username_entry = tk.Entry(username_input_frame, font=('Arial', S(16)),
+                                     width=18, justify='center', 
                                      bg='white', fg='black', bd=S(2), relief='solid')
-        self.username_entry.pack(side='left', pady=S(3), ipady=S(8), padx=(S(15), S(8)))  # Reduced padding
+        self.username_entry.pack(side='left', pady=S(3), ipady=S(8), padx=(S(15), S(8)))
+        
+        # Bind touch/click events to auto-show keyboard
+        self.username_entry.bind('<Button-1>', lambda e: self.show_username_keyboard())
+        self.username_entry.bind('<FocusIn>', lambda e: self.show_username_keyboard())
         
         username_kb_btn = tk.Button(username_input_frame, text="⌨", 
-                                   font=('Arial', S(18)),  # Reduced from S(20)
+                                   font=('Arial', S(18)),
                                    bg='#8b4a6b', fg='white', bd=0, 
-                                   padx=S(12), pady=S(8),  # Reduced padding
+                                   padx=S(12), pady=S(8),
                                    command=self.show_username_keyboard)
         username_kb_btn.pack(side='left')
         
-        # Password section - Compact
+        # Password section - Auto-show keyboard on touch
         password_section = tk.Frame(form_frame, bg='#4a6fa5')
-        password_section.pack(pady=S(10), fill='x')  # Reduced padding
+        password_section.pack(pady=S(10), fill='x')
         
         tk.Label(password_section, text="Password:", 
-                font=('Arial', S(16)),  # Reduced from S(20)
+                font=('Arial', S(16)), 
                 fg='white', bg='#4a6fa5').pack()
         
         password_input_frame = tk.Frame(password_section, bg='#4a6fa5')
-        password_input_frame.pack(pady=S(8), fill='x')  # Reduced padding
+        password_input_frame.pack(pady=S(8), fill='x')
         
-        self.password_entry = tk.Entry(password_input_frame, font=('Arial', S(16)),  # Reduced font
-                                     width=18, show='*', justify='center',  # Reduced width
+        self.password_entry = tk.Entry(password_input_frame, font=('Arial', S(16)),
+                                     width=18, show='*', justify='center',
                                      bg='white', fg='black', bd=S(2), relief='solid')
-        self.password_entry.pack(side='left', pady=S(3), ipady=S(8), padx=(S(15), S(8)))  # Reduced padding
+        self.password_entry.pack(side='left', pady=S(3), ipady=S(8), padx=(S(15), S(8)))
+        
+        # Bind touch/click events to auto-show keyboard
+        self.password_entry.bind('<Button-1>', lambda e: self.show_password_keyboard())
+        self.password_entry.bind('<FocusIn>', lambda e: self.show_password_keyboard())
         
         password_kb_btn = tk.Button(password_input_frame, text="⌨", 
-                                   font=('Arial', S(18)),  # Reduced from S(20)
+                                   font=('Arial', S(18)),
                                    bg='#8b4a6b', fg='white', bd=0, 
-                                   padx=S(12), pady=S(8),  # Reduced padding
+                                   padx=S(12), pady=S(8),
                                    command=self.show_password_keyboard)
         password_kb_btn.pack(side='left')
         
@@ -709,14 +812,32 @@ class LoginScreen:
                 fg='#cccccc', bg='#1e3a5f').pack(pady=S(15))  # Reduced padding
         
     def show_username_keyboard(self):
-        if self.username_keyboard:
-            self.username_keyboard.hide_keyboard()
-        self.username_keyboard = OnScreenKeyboard(self.main_app.root, self.username_entry, False)
-        self.username_keyboard.show_keyboard()
-        
-    def show_password_keyboard(self):
+        # Hide password keyboard if open
         if self.password_keyboard:
             self.password_keyboard.hide_keyboard()
+            self.password_keyboard = None
+        
+        # Hide existing username keyboard if open
+        if self.username_keyboard:
+            self.username_keyboard.hide_keyboard()
+            self.username_keyboard = None
+        
+        # Create new keyboard
+        self.username_keyboard = OnScreenKeyboard(self.main_app.root, self.username_entry, False)
+        self.username_keyboard.show_keyboard()
+    
+    def show_password_keyboard(self):
+        # Hide username keyboard if open
+        if self.username_keyboard:
+            self.username_keyboard.hide_keyboard()
+            self.username_keyboard = None
+        
+        # Hide existing password keyboard if open
+        if self.password_keyboard:
+            self.password_keyboard.hide_keyboard()
+            self.password_keyboard = None
+        
+        # Create new keyboard
         self.password_keyboard = OnScreenKeyboard(self.main_app.root, self.password_entry, True)
         self.password_keyboard.show_keyboard()
         
@@ -950,7 +1071,7 @@ class PayModesScreen:
                  padx=S(40), pady=S(20),
                  command=lambda: [process_window.destroy(), self.main_app.start_tablesoccer()]).pack(pady=S(30))
 
-# Simple QR Code Window - Just image and back button
+# Simple QR Code Window - Clean white background with aesthetics
 class QRCodeWindow:
     def __init__(self, main_app, parent_frame):
         self.main_app = main_app
@@ -958,70 +1079,222 @@ class QRCodeWindow:
         self.setup_ui()
         
     def setup_ui(self):
-        main_frame = tk.Frame(self.parent_frame, bg='#1e3a5f')
+        # Main frame with white background
+        main_frame = tk.Frame(self.parent_frame, bg='white')
         main_frame.pack(fill='both', expand=True)
         
-        # Header section
-        header_frame = tk.Frame(main_frame, bg='#1e3a5f')
-        header_frame.pack(fill='x', pady=(S(50), S(30)))
+        # Try to load custom fonts, fallback to system fonts if not available
+        try:
+            # You can replace these with your preferred fonts
+            title_font = ('Helvetica Neue', S(32), 'bold')
+            subtitle_font = ('Helvetica Neue', S(16), 'normal')
+            button_font = ('Helvetica Neue', S(18), 'bold')
+            amount_font = ('Helvetica Neue', S(28), 'bold')
+            instruction_font = ('Helvetica Neue', S(14), 'normal')
+            small_font = ('Helvetica Neue', S(12), 'normal')
+        except:
+            # Fallback fonts
+            title_font = ('Arial', S(32), 'bold')
+            subtitle_font = ('Arial', S(16), 'normal')
+            button_font = ('Arial', S(18), 'bold')
+            amount_font = ('Arial', S(28), 'bold')
+            instruction_font = ('Arial', S(14), 'normal')
+            small_font = ('Arial', S(12), 'normal')
         
-        # Back button - Touch optimized
+        # Header section with back button
+        header_frame = tk.Frame(main_frame, bg='white')
+        header_frame.pack(fill='x', pady=(S(40), S(20)))
+
+        # Back button with samball.io colors
         back_btn = tk.Button(header_frame, text="← Back", 
-                           font=('Arial', S(24), 'bold'), 
-                           bg='#4a6fa5', fg='white', bd=0, 
-                           padx=S(50), pady=S(25),
+                           font=button_font, 
+                           bg=SAMBALL_LIGHT_GRAY, fg=SAMBALL_GRAY, 
+                           bd=S(2), relief='solid',
+                           padx=S(30), pady=S(12),
+                           activebackground=SAMBALL_BLUE,
+                           activeforeground='white',
                            command=lambda: self.main_app.show_paymodes(self.main_app.selected_game_mode))
-        back_btn.pack(side='left', padx=(S(80), 0))
+        back_btn.pack(side='left', padx=(S(40), 0))
         
-        # Center content
-        center_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        # Center content container
+        center_frame = tk.Frame(main_frame, bg='white')
         center_frame.pack(expand=True, fill='both')
         
-        # Title
-        tk.Label(center_frame, text="SCAN QR CODE", 
-                font=('Arial', S(56), 'bold'), 
-                fg='white', bg='#1e3a5f').pack(pady=(S(50), S(80)))
+        # Content wrapper for centering
+        content_wrapper = tk.Frame(center_frame, bg='white')
+        content_wrapper.pack(expand=True)
+
+        # Title with samball.io branding
+        title_frame = tk.Frame(content_wrapper, bg='white')
+        title_frame.pack(pady=(S(40), S(30)))
+
+        tk.Label(title_frame, text="Scan QR Code", 
+            font=title_font, 
+            fg=SAMBALL_BLUE, bg='white').pack()
+
+        # Subtitle with samball.io colors
+        tk.Label(title_frame, text="Use your payment app to scan", 
+            font=subtitle_font, 
+            fg=SAMBALL_GRAY, bg='white').pack(pady=(S(8), 0))
+
+        # Add samball.io logo/branding
+        brand_label = tk.Label(title_frame, text="SAMBALL.IO", 
+            font=('Arial', S(14), 'bold'), 
+            fg=SAMBALL_ORANGE, bg='white')
+        brand_label.pack(pady=(S(10), 0))
         
-        # QR Code container with white background
-        qr_container = tk.Frame(center_frame, bg='white', bd=S(10), relief='raised')
-        qr_container.pack(pady=S(50))
+        # QR Code container with modern card design
+        qr_card = tk.Frame(content_wrapper, bg='white', bd=0, relief='flat')
+        qr_card.pack(pady=S(20))
         
-        # Create simple 3x3 QR code pattern
+        # Add subtle shadow effect with multiple frames
+        shadow_frame3 = tk.Frame(qr_card, bg='#e9ecef', height=S(4))
+        shadow_frame3.pack(fill='x', pady=(S(280), 0))
+        
+        shadow_frame2 = tk.Frame(qr_card, bg='#dee2e6', height=S(3))
+        shadow_frame2.pack(fill='x')
+        
+        shadow_frame1 = tk.Frame(qr_card, bg='#ced4da', height=S(2))
+        shadow_frame1.pack(fill='x')
+        
+        # Main QR container
+        qr_container = tk.Frame(qr_card, bg='white', bd=S(1), relief='solid')
+        qr_container.pack(padx=S(20), pady=(0, S(20)))
+        
+        # QR Code Image - Load actual QR code image with proper sizing
         qr_frame = tk.Frame(qr_container, bg='white')
-        qr_frame.pack(padx=S(60), pady=S(60))
+        qr_frame.pack(padx=S(40), pady=S(40))
+
+        try:
+            # Try to load your actual QR code image
+            from PIL import Image, ImageTk
+            
+            try:
+                # Load your actual QR code image with better sizing
+                qr_image = Image.open(r"E:\new ui\URL QR Code.png")
+                
+                # Get original image size
+                original_width, original_height = qr_image.size
+                print(f"Original QR code size: {original_width}x{original_height}")
+                
+                # Calculate proper size (make it larger and maintain aspect ratio)
+                target_size = S(300)  # Increased from S(250)
+                
+                # Maintain aspect ratio
+                if original_width > original_height:
+                    new_width = target_size
+                    new_height = int((original_height * target_size) / original_width)
+                else:
+                    new_height = target_size
+                    new_width = int((original_width * target_size) / original_height)
+                
+                print(f"Resizing QR code to: {new_width}x{new_height}")
+                
+                # Resize with high quality
+                qr_image = qr_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                qr_photo = ImageTk.PhotoImage(qr_image)
+                
+                # Create a frame with samball.io branding colors
+                qr_border_frame = tk.Frame(qr_frame, bg=SAMBALL_BLUE, bd=S(3), relief='solid')
+                qr_border_frame.pack(padx=S(10), pady=S(10))
+                
+                # Display the QR code with proper sizing
+                qr_label = tk.Label(qr_border_frame, image=qr_photo, bg='white', bd=S(2), relief='solid')
+                qr_label.image = qr_photo  # Keep a reference
+                qr_label.pack(padx=S(8), pady=S(8))
+                
+                # Add samball.io branding below QR code
+                brand_frame = tk.Frame(qr_frame, bg='white')
+                brand_frame.pack(pady=(S(15), 0))
+                
+                tk.Label(brand_frame, text="Powered by", 
+                        font=('Arial', S(12)), 
+                        fg='#666666', bg='white').pack()
+                
+                tk.Label(brand_frame, text="SAMBALL.IO", 
+                        font=('Arial', S(16), 'bold'), 
+                        fg=SAMBALL_BLUE, bg='white').pack()
+                
+            except FileNotFoundError:
+                print("QR code image file not found, using fallback")
+                # Fallback with better styling
+                fallback_frame = tk.Frame(qr_frame, bg=SAMBALL_BLUE, bd=S(3), relief='solid')
+                fallback_frame.pack(padx=S(10), pady=S(10))
+                
+                tk.Label(fallback_frame, text="QR CODE\nIMAGE", 
+                        font=('Arial', S(24), 'bold'), 
+                        fg='white', bg=SAMBALL_BLUE,
+                        justify='center', padx=S(60), pady=S(60)).pack()
         
-        # 3x3 grid of squares - you can replace this with your own QR image
-        qr_pattern = [
-            [1, 0, 1],  # 1 = black, 0 = white
-            [0, 1, 0],
-            [1, 0, 1]
-        ]
+    
+        except ImportError:
+            # Fallback: Create QR code using Canvas if PIL is not available
+            print("PIL not available, using Canvas fallback for QR code")
+            canvas_size = S(200)
+            qr_canvas = tk.Canvas(qr_frame, width=canvas_size, height=canvas_size, 
+                                bg='white', highlightthickness=0)
+            qr_canvas.pack()
+            
+            # Create a more detailed QR code pattern using Canvas
+            block_size = canvas_size // 25
+            
+            # Generate QR-like pattern
+            import random
+            for i in range(25):
+                for j in range(25):
+                    x1, y1 = i * block_size, j * block_size
+                    x2, y2 = x1 + block_size, y1 + block_size
+                    
+                    # Create corner finder patterns
+                    if ((i < 7 and j < 7) or (i < 7 and j > 17) or (i > 17 and j < 7)):
+                        if ((i == 0 or i == 6 or j == 0 or j == 6) or 
+                            (2 <= i <= 4 and 2 <= j <= 4)):
+                            color = 'black'
+                        else:
+                            color = 'white'
+                    else:
+                        color = 'black' if random.random() > 0.5 else 'white'
+                    
+                    qr_canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline='')
+    
+        except Exception as e:
+            print(f"Error creating QR code: {e}")
+            # Simple fallback text
+            tk.Label(qr_frame, text="QR CODE\nIMAGE", 
+                    font=('Arial', S(24), 'bold'), 
+                    fg='black', bg='white',
+                    justify='center').pack(pady=S(80))
+
+        # Payment amount with samball.io branding
+        amount_section = tk.Frame(content_wrapper, bg='white')
+        amount_section.pack(pady=(S(40), S(20)))
+
+        # Amount card with samball.io colors
+        amount_card = tk.Frame(amount_section, bg=SAMBALL_LIGHT_GRAY, bd=S(2), relief='solid')
+        amount_card.pack()
+
+        amount_inner = tk.Frame(amount_card, bg=SAMBALL_LIGHT_GRAY)
+        amount_inner.pack(padx=S(40), pady=S(20))
+
+        tk.Label(amount_inner, text="Amount", 
+                font=instruction_font, 
+                fg=SAMBALL_GRAY, bg=SAMBALL_LIGHT_GRAY).pack()
+
+        tk.Label(amount_inner, text="$9.99", 
+                font=amount_font, 
+                fg=SAMBALL_GREEN, bg=SAMBALL_LIGHT_GRAY).pack()
+    
+        # Instructions with custom fonts
+        instructions_frame = tk.Frame(content_wrapper, bg='white')
+        instructions_frame.pack(pady=(S(30), S(60)))
         
-        square_size = S(120)  # Large squares for touch screens
+        tk.Label(instructions_frame, text="Point your camera at the QR code", 
+                font=instruction_font, 
+                fg='#6c757d', bg='white').pack()
         
-        for row in range(3):
-            row_frame = tk.Frame(qr_frame, bg='white')
-            row_frame.pack()
-            for col in range(3):
-                color = 'black' if qr_pattern[row][col] else 'white'
-                square = tk.Frame(row_frame, bg=color, width=square_size, height=square_size, 
-                                bd=S(2), relief='solid')
-                square.pack(side='left')
-                square.pack_propagate(False)  # Maintain size
-        
-        # Instructions
-        tk.Label(center_frame, text="Use your payment app to scan this code", 
-                font=('Arial', S(24)), 
-                fg='#cccccc', bg='#1e3a5f').pack(pady=(S(80), S(40)))
-        
-        # Payment amount
-        amount_frame = tk.Frame(center_frame, bg='#4a6fa5', bd=S(4), relief='raised')
-        amount_frame.pack(pady=S(40))
-        
-        tk.Label(amount_frame, text="Amount: $9.99", 
-                font=('Arial', S(32), 'bold'), 
-                fg='white', bg='#4a6fa5', 
-                padx=S(60), pady=S(30)).pack()
+        tk.Label(instructions_frame, text="Payment will be processed automatically", 
+                font=small_font, 
+                fg='#adb5bd', bg='white').pack(pady=(S(5), 0))
 
 # Tablesoccer Scoreboard - Touch Support Added (keeping the same as before)
 class TableSoccerScoreboard:
