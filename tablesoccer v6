@@ -273,9 +273,10 @@ class OnScreenKeyboard:
 
 class MultiLevelGameApplication:
     def __init__(self):
-        self.current_screen = "main_menu"  # main_menu, login, game_modes, paymodes, tablesoccer, qrcode
+        self.current_screen = "main_menu"  # main_menu, login, paymodes, game_modes, tablesoccer, qrcode
         self.selected_main_option = None  # "RANKED" or "TRAINING"
-        self.selected_game_mode = None  # "CLASSIC", "BEST_OF_2_TO_5", "TIME_TRIAL", "SPEED_TRIAL"
+        self.selected_payment_mode = None  # Payment mode selection
+        self.selected_game_mode = None  # "CLASSIC", "BEST_OF_2_TO_5", "TIME_TRIAL", "SPEED_TRIAL", "ONLINE_WALLET"
         self.root = None
         self.main_frame = None
         self.current_app = None
@@ -330,7 +331,7 @@ class MultiLevelGameApplication:
         self.current_app.run()
         
     def show_login_screen(self, selected_option):
-        """Show login screen (Level 2)"""
+        """Show login screen (Level 2) - Only for RANKED mode"""
         self.selected_main_option = selected_option
         self.current_screen = "login"
         
@@ -348,9 +349,9 @@ class MultiLevelGameApplication:
         self.current_app = LoginScreen(self, self.main_frame)
         self.run_tkinter_loop()
         
-    def show_game_modes(self):
-        """Show game modes screen (Level 3)"""
-        self.current_screen = "game_modes"
+    def show_paymodes(self, from_training=False):
+        """Show payment modes screen (Level 2 for TRAINING, Level 3 for RANKED)"""
+        self.current_screen = "paymodes"
         
         # Quit pygame if running
         if pygame.get_init():
@@ -362,22 +363,21 @@ class MultiLevelGameApplication:
         else:
             self.clear_frame()
             
-        self.root.title("Game Modes Selection")
-        self.current_app = GameModesScreen(self, self.main_frame)
+        self.root.title("Payment Modes")
+        self.current_app = PayModesScreen(self, self.main_frame, from_training)
         self.run_tkinter_loop()
         
-    def show_paymodes(self, selected_game_mode):
-        """Show payment modes screen (Level 4)"""
-        self.selected_game_mode = selected_game_mode
-        self.current_screen = "paymodes"
+    def show_game_modes(self):
+        """Show game modes screen (Level 3 for TRAINING, Level 4 for RANKED)"""
+        self.current_screen = "game_modes"
         
         if not self.root:
             self.initialize_fullscreen_window()
         else:
             self.clear_frame()
             
-        self.root.title("Payment Modes")
-        self.current_app = PayModesScreen(self, self.main_frame)
+        self.root.title("Game Modes Selection")
+        self.current_app = GameModesScreen(self, self.main_frame)
         self.run_tkinter_loop()
         
     def start_tablesoccer(self):
@@ -410,6 +410,7 @@ class MultiLevelGameApplication:
         """Return to main menu"""
         print("Returning to Main Menu...")
         self.selected_main_option = None
+        self.selected_payment_mode = None
         self.selected_game_mode = None
         
         # Stop any running timers
@@ -427,6 +428,12 @@ class MultiLevelGameApplication:
         """Return to login screen"""
         print("Returning to Login...")
         self.show_login_screen(self.selected_main_option)
+        
+    def back_to_paymodes(self):
+        """Return to payment modes screen"""
+        print("Returning to Payment Modes...")
+        from_training = self.selected_main_option == "TRAINING"
+        self.show_paymodes(from_training)
         
     def back_to_game_modes(self):
         """Return to game modes screen"""
@@ -539,6 +546,18 @@ class MainMenuUI:
         self.font_medium = pygame.font.Font(None, S(36))
         self.font_small = pygame.font.Font(None, S(24))
         self.font_brand = pygame.font.Font(None, S(32))
+
+        # Load Samball.io logo
+        self.logo_image = None
+        try:
+            self.logo_image = pygame.image.load("assets/samball-logo.webp")
+            # Scale the logo to appropriate size
+            logo_size = S(80)
+            self.logo_image = pygame.transform.scale(self.logo_image, (logo_size, logo_size))
+            print("Samball.io logo loaded successfully!")
+        except Exception as e:
+            print(f"Could not load logo: {e}")
+            self.logo_image = None
         
         # Main menu cards with Samball.io colors
         card_width = S(300)
@@ -555,14 +574,17 @@ class MainMenuUI:
         self.selected_option = 0
         
     def draw_samball_logo(self, screen, x, y, size):
-        """Draw a simplified Samball.io logo - circular design"""
-        # Outer circle
-        pygame.draw.circle(screen, SAMBALL_GREEN_RGB, (x, y), size, S(8))
-        # Inner dot
-        pygame.draw.circle(screen, SAMBALL_GREEN_RGB, (x, y), size//4)
-        # Partial arc to match the logo style
-        arc_rect = pygame.Rect(x - size + S(15), y - size + S(15), (size - S(15)) * 2, (size - S(15)) * 2)
-        pygame.draw.arc(screen, WHITE, arc_rect, 0, 4.7, S(12))
+        """Draw the actual Samball.io logo or fallback to drawn version"""
+        if self.logo_image:
+            # Use the actual logo image
+            logo_rect = self.logo_image.get_rect(center=(x, y))
+            screen.blit(self.logo_image, logo_rect)
+        else:
+            # Fallback to drawn logo if image fails to load
+            pygame.draw.circle(screen, SAMBALL_GREEN_RGB, (x, y), size, S(8))
+            pygame.draw.circle(screen, SAMBALL_GREEN_RGB, (x, y), size//4)
+            arc_rect = pygame.Rect(x - size + S(15), y - size + S(15), (size - S(15)) * 2, (size - S(15)) * 2)
+            pygame.draw.arc(screen, WHITE, arc_rect, 0, 4.7, S(12))
         
     def draw_background(self):
         # Create gradient background with Samball.io colors
@@ -587,34 +609,33 @@ class MainMenuUI:
     
     def draw_title_and_branding(self):
         # Samball.io logo and branding at the top
-        logo_y = S(60)
-        logo_size = S(35)
+        logo_y = S(80)
         
-        # Draw logo
-        self.draw_samball_logo(self.screen, SCREEN_WIDTH // 2 - S(200), logo_y, logo_size)
+        # Draw logo - positioned to the left of the title
+        self.draw_samball_logo(self.screen, SCREEN_WIDTH // 2 - S(150), logo_y, S(35))
         
         # Main title with Samball.io branding
         title_surface = self.font_title.render("SAMBALL.IO", True, SAMBALL_GREEN_RGB)
-        title_rect = title_surface.get_rect(center=(SCREEN_WIDTH // 2, S(60)))
+        title_rect = title_surface.get_rect(center=(SCREEN_WIDTH // 2 + S(50), S(80)))
         self.screen.blit(title_surface, title_rect)
         
         # Subtitle
         subtitle_surface = self.font_medium.render("Professional Table Soccer", True, WHITE)
-        subtitle_rect = subtitle_surface.get_rect(center=(SCREEN_WIDTH // 2, S(100)))
+        subtitle_rect = subtitle_surface.get_rect(center=(SCREEN_WIDTH // 2, S(120)))
         self.screen.blit(subtitle_surface, subtitle_rect)
         
         # Decorative line with Samball.io colors
-        line_y = S(140)
+        line_y = S(160)
         pygame.draw.line(self.screen, SAMBALL_GREEN_RGB, (S(50), line_y), (SCREEN_WIDTH - S(50), line_y), S(3))
         
         # Mode selection instruction
         instruction_surface = self.font_small.render("Choose your game mode", True, WHITE)
-        instruction_rect = instruction_surface.get_rect(center=(SCREEN_WIDTH // 2, S(170)))
+        instruction_rect = instruction_surface.get_rect(center=(SCREEN_WIDTH // 2, S(190)))
         self.screen.blit(instruction_surface, instruction_rect)
         
         # Website URL
         url_surface = self.font_small.render("www.samball.io", True, SAMBALL_ORANGE_RGB)
-        url_rect = url_surface.get_rect(center=(SCREEN_WIDTH // 2, S(200)))
+        url_rect = url_surface.get_rect(center=(SCREEN_WIDTH // 2, S(220)))
         self.screen.blit(url_surface, url_rect)
     
     def draw_bottom_branding(self):
@@ -634,32 +655,32 @@ class MainMenuUI:
         samball_surface = self.font_brand.render("SAMBALL.IO", True, SAMBALL_ORANGE_RGB)
         samball_rect = samball_surface.get_rect(center=(SCREEN_WIDTH // 2, bottom_y + S(55)))
         self.screen.blit(samball_surface, samball_rect)
-        
-        # Small logo next to branding
+    
+        # Actual logo next to branding (smaller size)
         self.draw_samball_logo(self.screen, SCREEN_WIDTH // 2 + S(120), bottom_y + S(40), S(20))
-        
+    
         # Controls instruction
         controls = [
             ("Touch", "Select"),
             ("Esc", "Exit")
         ]
-        
+    
         x_pos = S(50)
         for key, action in controls:
             # Key background
             key_rect = pygame.Rect(x_pos, SCREEN_HEIGHT - S(40), S(100), S(25))
             pygame.draw.rect(self.screen, GRAY, key_rect)
             pygame.draw.rect(self.screen, WHITE, key_rect, S(2))
-            
+        
             # Key text
             key_surface = self.font_small.render(key, True, BLACK)
             key_text_rect = key_surface.get_rect(center=key_rect.center)
             self.screen.blit(key_surface, key_text_rect)
-            
+        
             # Action text
             action_surface = self.font_small.render(action, True, WHITE)
             self.screen.blit(action_surface, (x_pos + S(110), SCREEN_HEIGHT - S(35)))
-            
+        
             x_pos += S(250)
     
     def handle_input(self, event):
@@ -685,7 +706,14 @@ class MainMenuUI:
             elif event.key == pygame.K_RETURN:
                 selected_title = self.menu_options[self.selected_option].title
                 print(f"Selected: {selected_title}")
-                self.main_app.show_login_screen(selected_title)
+                
+                # NEW LOGIC: Skip login for TRAINING mode
+                if selected_title == "TRAINING":
+                    print("TRAINING mode selected - skipping login, going directly to payment modes")
+                    self.main_app.show_paymodes(from_training=True)
+                else:
+                    print("RANKED mode selected - showing login screen")
+                    self.main_app.show_login_screen(selected_title)
                 return False
                 
         elif event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.FINGERDOWN:
@@ -709,9 +737,16 @@ class MainMenuUI:
                     option.border_color = SAMBALL_ORANGE_RGB
                     option.border_width = S(4)
                     
-                    # Navigate to login
+                    # Navigate based on selection
                     print(f"Touched: {option.title}")
-                    self.main_app.show_login_screen(option.title)
+                    
+                    # NEW LOGIC: Skip login for TRAINING mode
+                    if option.title == "TRAINING":
+                        print("TRAINING mode selected - skipping login, going directly to payment modes")
+                        self.main_app.show_paymodes(from_training=True)
+                    else:
+                        print("RANKED mode selected - showing login screen")
+                        self.main_app.show_login_screen(option.title)
                     return False
         return True
     
@@ -747,7 +782,7 @@ class MainMenuUI:
             pygame.display.flip()
             self.clock.tick(FPS)
 
-# Level 2: Login Screen (Tkinter) - FIXED LAYOUT FOR LOGIN BUTTON VISIBILITY
+# Level 2: Login Screen (Tkinter) - ONLY FOR RANKED MODE
 class LoginScreen:
     def __init__(self, main_app, parent_frame):
         self.main_app = main_app
@@ -915,7 +950,8 @@ class LoginScreen:
         
         if username and password:
             print(f"Login successful for {username} in {self.main_app.selected_main_option} mode")
-            self.main_app.show_game_modes()
+            # After login, go to payment modes
+            self.main_app.show_paymodes(from_training=False)
         else:
             # Show error message - Touch optimized
             error_window = tk.Toplevel(self.main_app.root)
@@ -938,96 +974,12 @@ class LoginScreen:
                      padx=S(30), pady=S(15),
                      command=error_window.destroy).pack()
 
-# Level 3: Game Modes Screen (Tkinter) - Touch Support Added
-class GameModesScreen:
-    def __init__(self, main_app, parent_frame):
-        self.main_app = main_app
-        self.parent_frame = parent_frame
-        self.setup_ui()
-        
-    def setup_ui(self):
-        main_frame = tk.Frame(self.parent_frame, bg='#1e3a5f')
-        main_frame.pack(fill='both', expand=True)
-        
-        # Header
-        header_frame = tk.Frame(main_frame, bg='#1e3a5f')
-        header_frame.pack(fill='x', pady=(S(30), S(20)))
-        
-        # Back button - Touch optimized
-        back_btn = tk.Button(header_frame, text="← Back to Login", 
-                           font=('Arial', S(20), 'bold'), 
-                           bg='#4a6fa5', fg='white', bd=0, 
-                           padx=S(40), pady=S(20),
-                           command=self.main_app.back_to_login)
-        back_btn.pack(side='left', padx=(S(50), 0))
-        
-        # Touch instruction
-        tk.Label(header_frame, text="Touch to select", 
-                font=('Arial', S(16)), 
-                fg='#cccccc', bg='#1e3a5f').pack(side='right', padx=(0, S(50)))
-        
-        # Center content
-        center_frame = tk.Frame(main_frame, bg='#1e3a5f')
-        center_frame.pack(expand=True, fill='both')
-        
-        # Title
-        tk.Label(center_frame, text="GAME MODES", 
-                font=('Arial', S(48), 'bold'), 
-                fg='white', bg='#1e3a5f').pack(pady=(0, S(40)))
-        
-        # Game modes grid - Touch optimized
-        modes_frame = tk.Frame(center_frame, bg='#1e3a5f')
-        modes_frame.pack(pady=S(20))
-        
-        game_modes = [
-            ("CLASSIC", "Traditional gameplay"),
-            ("BEST OF 2 TO 5", "Tournament style"),
-            ("TIME TRIAL", "Race against time"),
-            ("SPEED TRIAL", "Fast-paced action")
-        ]
-        
-        # Create 2x2 grid with larger touch targets
-        for i, (mode, description) in enumerate(game_modes):
-            row = i // 2
-            col = i % 2
-            
-            mode_frame = tk.Frame(modes_frame, bg='#4a6fa5', bd=S(4), relief='raised')
-            mode_frame.grid(row=row, column=col, padx=S(30), pady=S(20), sticky='nsew')
-            
-            # Mode button - Touch optimized
-            mode_btn = tk.Button(mode_frame, text=mode, 
-                               font=('Arial', S(22), 'bold'), 
-                               bg='#4a6fa5', fg='white', bd=0, 
-                               padx=S(40), pady=S(30),
-                               command=lambda m=mode: self.select_game_mode(m))
-            mode_btn.pack(pady=(S(30), S(15)))
-            
-            # Description
-            tk.Label(mode_frame, text=description, 
-                    font=('Arial', S(16)), 
-                    fg='#cccccc', bg='#4a6fa5').pack(pady=(0, S(30)))
-        
-        # Configure grid weights
-        modes_frame.grid_columnconfigure(0, weight=1)
-        modes_frame.grid_columnconfigure(1, weight=1)
-        
-        # Add Samball.io branding at bottom
-        brand_frame = tk.Frame(center_frame, bg='#1e3a5f')
-        brand_frame.pack(side='bottom', pady=S(20))
-        
-        tk.Label(brand_frame, text="Powered by SAMBALL.IO", 
-                font=('Arial', S(12)), 
-                fg=SAMBALL_ORANGE, bg='#1e3a5f').pack()
-        
-    def select_game_mode(self, mode):
-        print(f"Selected game mode: {mode}")
-        self.main_app.show_paymodes(mode)
-
-# Level 4: Payment Modes Screen (Tkinter) - Touch Support Added
+# Level 2/3: Payment Modes Screen (Level 2 for TRAINING, Level 3 for RANKED)
 class PayModesScreen:
-    def __init__(self, main_app, parent_frame):
+    def __init__(self, main_app, parent_frame, from_training=False):
         self.main_app = main_app
         self.parent_frame = parent_frame
+        self.from_training = from_training
         self.setup_ui()
         
     def setup_ui(self):
@@ -1038,12 +990,19 @@ class PayModesScreen:
         header_frame = tk.Frame(main_frame, bg='#1e3a5f')
         header_frame.pack(fill='x', pady=(S(30), S(20)))
         
-        # Back button - Touch optimized
-        back_btn = tk.Button(header_frame, text="← Back to Game Modes", 
+        # Back button - Different behavior based on mode
+        if self.from_training:
+            back_text = "← Back to Main Menu"
+            back_command = self.main_app.back_to_main_menu
+        else:
+            back_text = "← Back to Login"
+            back_command = self.main_app.back_to_login
+            
+        back_btn = tk.Button(header_frame, text=back_text, 
                            font=('Arial', S(20), 'bold'), 
                            bg='#4a6fa5', fg='white', bd=0, 
                            padx=S(40), pady=S(20),
-                           command=self.main_app.back_to_game_modes)
+                           command=back_command)
         back_btn.pack(side='left', padx=(S(50), 0))
         
         # Touch instruction
@@ -1060,12 +1019,12 @@ class PayModesScreen:
                 font=('Arial', S(48), 'bold'), 
                 fg='white', bg='#1e3a5f').pack(pady=(0, S(20)))
         
-        # Selected mode and game mode display
+        # Selected mode display
         selection_frame = tk.Frame(center_frame, bg='#4a6fa5', bd=S(3), relief='raised')
         selection_frame.pack(pady=S(20), padx=S(100))
         
-        tk.Label(selection_frame, 
-                text=f"{self.main_app.selected_main_option} → {self.main_app.selected_game_mode}", 
+        mode_text = f"{self.main_app.selected_main_option} Mode Selected"
+        tk.Label(selection_frame, text=mode_text, 
                 font=('Arial', S(20), 'bold'), 
                 fg='white', bg='#4a6fa5', pady=S(20)).pack()
         
@@ -1105,12 +1064,15 @@ class PayModesScreen:
         
     def select_payment_mode(self, mode):
         print(f"Selected payment mode: {mode}")
+        self.main_app.selected_payment_mode = mode
+        
         if mode == "qr_code":
             self.main_app.show_qr_code()
         elif mode == "pos":
-            self.main_app.start_tablesoccer()
+            # After payment, go to game modes
+            self.main_app.show_game_modes()
         else:
-            # For online wallet, show a placeholder
+            # For online wallet, show a placeholder then go to game modes
             self.show_payment_processing(mode)
             
     def show_payment_processing(self, mode):
@@ -1139,15 +1101,108 @@ class PayModesScreen:
                 font=('Arial', S(20)), 
                 fg='#90EE90', bg='#1e3a5f').pack(pady=S(20))
         
-        tk.Label(frame, text="Starting game...", 
+        tk.Label(frame, text="Proceeding to game modes...", 
                 font=('Arial', S(18)), 
                 fg='white', bg='#1e3a5f').pack(pady=S(15))
         
-        tk.Button(frame, text="Continue to Game", 
+        tk.Button(frame, text="Continue to Game Modes", 
                  font=('Arial', S(18)), 
                  bg='#4a6fa5', fg='white', bd=0, 
                  padx=S(40), pady=S(20),
-                 command=lambda: [process_window.destroy(), self.main_app.start_tablesoccer()]).pack(pady=S(30))
+                 command=lambda: [process_window.destroy(), self.main_app.show_game_modes()]).pack(pady=S(30))
+
+# Level 3/4: Game Modes Screen (Level 3 for TRAINING, Level 4 for RANKED) - WITH ONLINE WALLET ADDED
+class GameModesScreen:
+    def __init__(self, main_app, parent_frame):
+        self.main_app = main_app
+        self.parent_frame = parent_frame
+        self.setup_ui()
+        
+    def setup_ui(self):
+        main_frame = tk.Frame(self.parent_frame, bg='#1e3a5f')
+        main_frame.pack(fill='both', expand=True)
+        
+        # Header
+        header_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        header_frame.pack(fill='x', pady=(S(30), S(20)))
+        
+        # Back button - Touch optimized
+        back_btn = tk.Button(header_frame, text="← Back to Payment Modes", 
+                           font=('Arial', S(20), 'bold'), 
+                           bg='#4a6fa5', fg='white', bd=0, 
+                           padx=S(40), pady=S(20),
+                           command=self.main_app.back_to_paymodes)
+        back_btn.pack(side='left', padx=(S(50), 0))
+        
+        # Touch instruction
+        tk.Label(header_frame, text="Touch to select", 
+                font=('Arial', S(16)), 
+                fg='#cccccc', bg='#1e3a5f').pack(side='right', padx=(0, S(50)))
+        
+        # Center content
+        center_frame = tk.Frame(main_frame, bg='#1e3a5f')
+        center_frame.pack(expand=True, fill='both')
+        
+        # Title
+        tk.Label(center_frame, text="GAME MODES", 
+                font=('Arial', S(48), 'bold'), 
+                fg='white', bg='#1e3a5f').pack(pady=(0, S(40)))
+        
+        # Game modes grid - Touch optimized - NOW WITH 5 OPTIONS INCLUDING ONLINE WALLET
+        modes_frame = tk.Frame(center_frame, bg='#1e3a5f')
+        modes_frame.pack(pady=S(20))
+        
+        game_modes = [
+            ("CLASSIC", "Traditional gameplay"),
+            ("BEST OF 2 TO 5", "Tournament style"),
+            ("TIME TRIAL", "Race against time"),
+            ("SPEED TRIAL", "Fast-paced action"),
+            ("ONLINE WALLET", "Digital payment mode")  # NEW OPTION ADDED
+        ]
+        
+        # Create grid layout for 5 options (3 on top, 2 on bottom)
+        for i, (mode, description) in enumerate(game_modes):
+            if i < 3:
+                row = 0
+                col = i
+            else:
+                row = 1
+                col = i - 3
+            
+            mode_frame = tk.Frame(modes_frame, bg='#4a6fa5', bd=S(4), relief='raised')
+            mode_frame.grid(row=row, column=col, padx=S(30), pady=S(20), sticky='nsew')
+            
+            # Mode button - Touch optimized
+            mode_btn = tk.Button(mode_frame, text=mode, 
+                               font=('Arial', S(22), 'bold'), 
+                               bg='#4a6fa5', fg='white', bd=0, 
+                               padx=S(40), pady=S(30),
+                               command=lambda m=mode: self.select_game_mode(m))
+            mode_btn.pack(pady=(S(30), S(15)))
+            
+            # Description
+            tk.Label(mode_frame, text=description, 
+                    font=('Arial', S(16)), 
+                    fg='#cccccc', bg='#4a6fa5').pack(pady=(0, S(30)))
+        
+        # Configure grid weights for proper centering
+        modes_frame.grid_columnconfigure(0, weight=1)
+        modes_frame.grid_columnconfigure(1, weight=1)
+        modes_frame.grid_columnconfigure(2, weight=1)
+        
+        # Add Samball.io branding at bottom
+        brand_frame = tk.Frame(center_frame, bg='#1e3a5f')
+        brand_frame.pack(side='bottom', pady=S(20))
+        
+        tk.Label(brand_frame, text="Powered by SAMBALL.IO", 
+                font=('Arial', S(12)), 
+                fg=SAMBALL_ORANGE, bg='#1e3a5f').pack()
+        
+    def select_game_mode(self, mode):
+        print(f"Selected game mode: {mode}")
+        self.main_app.selected_game_mode = mode
+        # After selecting game mode, start the tablesoccer game
+        self.main_app.start_tablesoccer()
 
 # Simple QR Code Window - Clean white background with aesthetics
 class QRCodeWindow:
@@ -1191,7 +1246,7 @@ class QRCodeWindow:
                            padx=S(30), pady=S(12),
                            activebackground=SAMBALL_BLUE,
                            activeforeground='white',
-                           command=lambda: self.main_app.show_paymodes(self.main_app.selected_game_mode))
+                           command=self.main_app.back_to_paymodes)
         back_btn.pack(side='left', padx=(S(40), 0))
         
         # Center content container
@@ -1308,6 +1363,14 @@ class QRCodeWindow:
         # Enhanced Samball.io branding footer
         footer_frame = tk.Frame(content_wrapper, bg='white')
         footer_frame.pack(side='bottom', pady=S(30))
+        
+        # Continue to game modes button after QR scan simulation
+        continue_btn = tk.Button(footer_frame, text="Payment Complete - Continue", 
+                               font=button_font, 
+                               bg=SAMBALL_GREEN, fg='white', 
+                               bd=0, padx=S(40), pady=S(15),
+                               command=self.main_app.show_game_modes)
+        continue_btn.pack(pady=(S(20), 0))
         
         tk.Label(footer_frame, text="Designed by SAMBALL.IO", 
                 font=('Arial', S(14), 'bold'), 
@@ -1827,16 +1890,14 @@ class TableSoccerScoreboard:
 if __name__ == "__main__":
     print("=== SAMBALL.IO - PROFESSIONAL TABLE SOCCER GAME ===")
     print("Enhanced with prominent Samball.io branding throughout!")
-    print("Following the 4-level navigation structure:")
-    print("1. MAIN MENU (RANKED/TRAINING) - Now with Samball.io logo and branding")
-    print("2. LOGIN (Username/Password) - WITH ON-SCREEN KEYBOARD")
-    print("3. GAME MODES (Classic/Best of 2-5/Time Trial/Speed Trial)")
-    print("4. PAYMODES (Online Wallet/QR Code/POS)")
-    print("Navigate through each level to reach the final game!")
-    print("TOUCH OPTIMIZED - All buttons are larger for touch screens")
-    print("ON-SCREEN KEYBOARD - Touch ⌨ button next to input fields")
-    print("SAMBALL.IO BRANDING - 'Designed by Samball.io' prominently displayed")
-    print("All interfaces scale to your screen resolution!")
+    print("UPDATED NAVIGATION FLOW:")
+    print("1. MAIN MENU (RANKED/TRAINING)")
+    print("   - RANKED: Goes to Login → Payment Modes → Game Modes → Scoreboard")
+    print("   - TRAINING: Skips Login, goes directly to Payment Modes → Game Modes → Scoreboard")
+    print("2. PAYMENT MODES now come BEFORE Game Modes")
+    print("3. GAME MODES now include 'ONLINE WALLET' as 5th option")
+    print("4. All screens are TOUCH OPTIMIZED with on-screen keyboard")
+    print("5. SAMBALL.IO BRANDING throughout all interfaces")
     print("=====================================")
     
     app = MultiLevelGameApplication()
